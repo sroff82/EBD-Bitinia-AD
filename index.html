@@ -8,6 +8,7 @@
     <!-- Configuración para la pantalla de inicio del móvil -->
     <meta name="theme-color" content="#4f46e5">
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwMCIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI1NiI+8J+SmDwvdGV4dD48L3N2Zz4=">
+    <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwMCIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI1NiI+8J+SmDwvdGV4dD48L3N2Zz4=">
 
     <!-- Tailwind CSS (Diseño) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -31,16 +32,32 @@
         const { useState, useEffect } = React;
 
         // ======================================================================
-        // 1. REEMPLAZA ESTO CON LA CONFIGURACIÓN DE TU PROYECTO FIREBASE
+        // MUY IMPORTANTE: NO BORRES ESTE BLOQUE
+        // Aunque no tengas base de datos aún, deja este texto de ejemplo.
+        // Solo cambia lo que está entre comillas cuando ya tengas tu Firebase.
+        // ======================================================================
+        const firebaseConfig = {
+            apiKey: "PEGA_AQUI_TU_API_KEY",
+            authDomain: "tu-proyecto.firebaseapp.com",
+            projectId: "tu-proyecto",
+            storageBucket: "tu-proyecto.appspot.com",
+            messagingSenderId: "TUS_NUMEROS",
+            appId: "TU_APP_ID"
+        };
         // ======================================================================
 
-        // ======================================================================
-
-        // Inicializar Firebase
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
+        // Intentar conectar a Firebase SOLO si ya pusiste tus datos reales
+        let db = null;
+        if (firebaseConfig.apiKey !== "PEGA_AQUI_TU_API_KEY") {
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                db = firebase.firestore();
+            } catch (error) {
+                console.error("Error al conectar Firebase:", error);
+            }
         }
-        const db = firebase.firestore();
 
         function App() {
             const [maestros, setMaestros] = useState([]);
@@ -54,10 +71,10 @@
             const [modalCompartirAbierto, setModalCompartirAbierto] = useState(false);
             const [enlaceCopiado, setEnlaceCopiado] = useState(false);
 
-            // Cargar datos desde tu base de datos Firebase
+            // Cargar datos (de Firebase si existe, o dejar vacío si no)
             useEffect(() => {
-                // Prevenir error si la configuración está vacía
-                if (firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY") {
+                if (!db) {
+                    // No hay base de datos conectada, quitamos la pantalla de carga
                     setCargando(false);
                     return;
                 }
@@ -71,7 +88,7 @@
                     setMaestros(data);
                     setCargando(false);
                 }, (error) => {
-                    console.error("Error de Firebase (revisa reglas o configuración):", error);
+                    console.error("Error leyendo datos:", error);
                     setCargando(false);
                 });
                 
@@ -83,6 +100,19 @@
             const clasesDistintas = new Set(maestros.map(m => m.clase)).size;
 
             const guardarMaestro = async (datosMaestro) => {
+                if (!db) {
+                    // MODO SIN INTERNET: Solo lo guarda en la pantalla temporalmente
+                    if (maestroEnEdicion) {
+                        setMaestros(maestros.map(m => m.id === maestroEnEdicion.id ? { ...m, ...datosMaestro } : m));
+                    } else {
+                        setMaestros([...maestros, { id: Date.now().toString(), ...datosMaestro }]);
+                    }
+                    setModalFormularioAbierto(false);
+                    setMaestroEnEdicion(null);
+                    return;
+                }
+
+                // MODO CON FIREBASE
                 try {
                     if (maestroEnEdicion) {
                         await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
@@ -92,11 +122,19 @@
                     setModalFormularioAbierto(false);
                     setMaestroEnEdicion(null);
                 } catch (error) {
-                    alert("Error al guardar. Verifica tu Firebase.");
+                    console.error("Error al guardar:", error);
                 }
             };
 
             const confirmarEliminacion = async () => {
+                if (!db) {
+                    // MODO SIN INTERNET
+                    setMaestros(maestros.filter(m => m.id !== idMaestroAEliminar));
+                    setIdMaestroAEliminar(null);
+                    return;
+                }
+
+                // MODO CON FIREBASE
                 try {
                     await db.collection('maestros').doc(idMaestroAEliminar).delete();
                     setIdMaestroAEliminar(null);
@@ -137,14 +175,14 @@
                         {cargando && (
                             <div className="absolute inset-0 bg-slate-50/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
                                 <i className="fas fa-circle-notch fa-spin text-4xl text-indigo-600 mb-2"></i>
-                                <p className="text-indigo-600 font-medium">Conectando...</p>
+                                <p className="text-indigo-600 font-medium">Cargando...</p>
                             </div>
                         )}
 
-                        {firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY" && (
-                            <div className="bg-rose-100 border-l-4 border-rose-500 p-4 mb-4 rounded shadow-sm text-sm text-rose-800">
-                                <strong><i className="fas fa-exclamation-triangle mr-2"></i> Falta la Base de Datos</strong><br/>
-                                Para guardar información, debes agregar tu configuración de Firebase en el código del archivo index.html.
+                        {!db && !cargando && (
+                            <div className="bg-amber-100 border-l-4 border-amber-500 p-4 mb-4 rounded shadow-sm text-sm text-amber-800">
+                                <strong><i className="fas fa-info-circle mr-2"></i> Modo de Prueba</strong><br/>
+                                Aún no has conectado la base de datos. Los maestros que registres ahora desaparecerán si cierras la página.
                             </div>
                         )}
 
@@ -279,7 +317,7 @@
                             <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-5 pb-8 shadow-xl">
                                 <div className="flex justify-between items-center mb-4 border-b pb-3">
                                     <h2 className="text-xl font-bold">{maestroEnEdicion ? 'Editar Maestro' : 'Nuevo Maestro'}</h2>
-                                    <button onClick={() => setModalFormularioAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full">
+                                    <button onClick={() => setModalFormularioAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full flex justify-center items-center">
                                         <i className="fas fa-times"></i>
                                     </button>
                                 </div>
@@ -344,11 +382,11 @@
                                 </div>
                                 <i className="fab fa-whatsapp text-5xl text-emerald-500 mb-4"></i>
                                 <h3 className="text-xl font-bold mb-2">Comparte la Aplicación</h3>
-                                <p className="text-slate-600 mb-6 text-sm">Copia el enlace de tu nueva página y envíalo a tu grupo de WhatsApp. ¡Todos verán la misma información!</p>
+                                <p className="text-slate-600 mb-6 text-sm">Copia el enlace de tu nueva página y envíalo a tu grupo de WhatsApp. Cuando abran el link, podrán instalarla en su pantalla de inicio.</p>
                                 
                                 <button onClick={copiarEnlacePublico} className={`w-full py-4 text-white font-bold rounded-xl transition-colors flex justify-center items-center space-x-2 ${enlaceCopiado ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
                                     <i className={enlaceCopiado ? "fas fa-check" : "fas fa-copy"}></i>
-                                    <span>{enlaceCopiado ? '¡Enlace copiado!' : 'Copiar Enlace'}</span>
+                                    <span>{enlaceCopiado ? '¡Enlace copiado!' : 'Copiar Enlace para WhatsApp'}</span>
                                 </button>
                             </div>
                         </div>
