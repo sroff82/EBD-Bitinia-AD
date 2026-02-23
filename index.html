@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escuela Dominical</title>
+    
+    <!-- Configuración para la pantalla de inicio del móvil -->
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwMCIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI1NiI+8J+SmDwvdGV4dD48L3N2Zz4=">
+
+    <!-- Tailwind CSS (Diseño) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome (Íconos) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- React y Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase (Base de Datos) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ======================================================================
+        // 1. REEMPLAZA ESTO CON LA CONFIGURACIÓN DE TU PROYECTO FIREBASE
+        // ======================================================================
+
+        // ======================================================================
+
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        function App() {
+            const [maestros, setMaestros] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [tabActiva, setTabActiva] = useState('inicio');
+            const [busqueda, setBusqueda] = useState('');
+            
+            const [modalFormularioAbierto, setModalFormularioAbierto] = useState(false);
+            const [maestroEnEdicion, setMaestroEnEdicion] = useState(null);
+            const [idMaestroAEliminar, setIdMaestroAEliminar] = useState(null);
+            const [modalCompartirAbierto, setModalCompartirAbierto] = useState(false);
+            const [enlaceCopiado, setEnlaceCopiado] = useState(false);
+
+            // Cargar datos desde tu base de datos Firebase
+            useEffect(() => {
+                // Prevenir error si la configuración está vacía
+                if (firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY") {
+                    setCargando(false);
+                    return;
+                }
+
+                const unsubscribe = db.collection('maestros').onSnapshot((snapshot) => {
+                    const data = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    data.sort((a, b) => a.nombre.localeCompare(b.nombre));
+                    setMaestros(data);
+                    setCargando(false);
+                }, (error) => {
+                    console.error("Error de Firebase (revisa reglas o configuración):", error);
+                    setCargando(false);
+                });
+                
+                return () => unsubscribe();
+            }, []);
+
+            const totalMaestros = maestros.length;
+            const maestrosActivos = maestros.filter(m => m.estado === 'Activo').length;
+            const clasesDistintas = new Set(maestros.map(m => m.clase)).size;
+
+            const guardarMaestro = async (datosMaestro) => {
+                try {
+                    if (maestroEnEdicion) {
+                        await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
+                    } else {
+                        await db.collection('maestros').add({ ...datosMaestro, createdAt: Date.now() });
+                    }
+                    setModalFormularioAbierto(false);
+                    setMaestroEnEdicion(null);
+                } catch (error) {
+                    alert("Error al guardar. Verifica tu Firebase.");
+                }
+            };
+
+            const confirmarEliminacion = async () => {
+                try {
+                    await db.collection('maestros').doc(idMaestroAEliminar).delete();
+                    setIdMaestroAEliminar(null);
+                } catch (error) {
+                    console.error("Error al eliminar:", error);
+                }
+            };
+
+            const copiarEnlacePublico = () => {
+                const url = window.location.href;
+                navigator.clipboard.writeText(url).then(() => {
+                    setEnlaceCopiado(true);
+                    setTimeout(() => setEnlaceCopiado(false), 3000);
+                });
+            };
+
+            const maestrosFiltrados = maestros.filter(m => 
+                m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || 
+                m.clase.toLowerCase().includes(busqueda.toLowerCase())
+            );
+
+            return (
+                <div className="flex flex-col h-screen font-sans">
+                    <header className="bg-indigo-600 text-white p-4 shadow-md z-10 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-xl font-bold">Escuela Dominical</h1>
+                            <p className="text-indigo-200 text-xs mt-1">Registro de Maestros</p>
+                        </div>
+                        <button 
+                            onClick={() => setModalCompartirAbierto(true)}
+                            className="w-10 h-10 bg-indigo-500 rounded-full hover:bg-indigo-400 transition-colors flex items-center justify-center shadow-sm"
+                        >
+                            <i className="fas fa-share-alt text-lg"></i>
+                        </button>
+                    </header>
+
+                    <main className="flex-1 overflow-y-auto p-4 pb-20 relative bg-slate-50">
+                        {cargando && (
+                            <div className="absolute inset-0 bg-slate-50/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                                <i className="fas fa-circle-notch fa-spin text-4xl text-indigo-600 mb-2"></i>
+                                <p className="text-indigo-600 font-medium">Conectando...</p>
+                            </div>
+                        )}
+
+                        {firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY" && (
+                            <div className="bg-rose-100 border-l-4 border-rose-500 p-4 mb-4 rounded shadow-sm text-sm text-rose-800">
+                                <strong><i className="fas fa-exclamation-triangle mr-2"></i> Falta la Base de Datos</strong><br/>
+                                Para guardar información, debes agregar tu configuración de Firebase en el código del archivo index.html.
+                            </div>
+                        )}
+
+                        {tabActiva === 'inicio' && (
+                            <div className="space-y-6">
+                                <h2 className="text-lg font-semibold text-slate-700">Resumen del Ministerio</h2>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                                        <i className="fas fa-users text-indigo-500 mb-2 text-3xl"></i>
+                                        <span className="text-3xl font-bold text-slate-800">{totalMaestros}</span>
+                                        <span className="text-xs text-slate-500 uppercase tracking-wider mt-1 text-center">Registrados</span>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                                        <i className="fas fa-user-check text-emerald-500 mb-2 text-3xl"></i>
+                                        <span className="text-3xl font-bold text-slate-800">{maestrosActivos}</span>
+                                        <span className="text-xs text-slate-500 uppercase tracking-wider mt-1">Activos</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                        <i className="fas fa-book-open text-amber-500 text-xl"></i>
+                                        <h3 className="font-medium">Clases Cubiertas</h3>
+                                    </div>
+                                    <p className="text-2xl font-bold text-slate-800">{clasesDistintas}</p>
+                                </div>
+
+                                <button 
+                                    onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-xl font-medium shadow-md transition-colors flex items-center justify-center space-x-2"
+                                >
+                                    <i className="fas fa-user-plus text-xl"></i>
+                                    <span>Registrar Nuevo Maestro</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {tabActiva === 'lista' && (
+                            <div className="space-y-4">
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <i className="fas fa-search text-slate-400"></i>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar maestro o clase..."
+                                        value={busqueda}
+                                        onChange={(e) => setBusqueda(e.target.value)}
+                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm transition-all"
+                                    />
+                                </div>
+
+                                <div className="space-y-3 mt-4">
+                                    {maestrosFiltrados.length === 0 && !cargando ? (
+                                        <div className="text-center py-10 text-slate-500">
+                                            <i className="fas fa-user-slash text-4xl text-slate-300 mb-3"></i>
+                                            <p>No se encontraron maestros.</p>
+                                        </div>
+                                    ) : (
+                                        maestrosFiltrados.map((maestro) => (
+                                            <div key={maestro.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col relative overflow-hidden">
+                                                <div className={`absolute left-0 top-0 bottom-0 w-1 ${maestro.estado === 'Activo' ? 'bg-emerald-500' : 'bg-rose-400'}`}></div>
+                                                
+                                                <div className="flex justify-between items-start mb-2 pl-2">
+                                                    <div>
+                                                        <h3 className="font-bold text-lg text-slate-800">{maestro.nombre}</h3>
+                                                        <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-md mt-1">
+                                                            {maestro.clase}
+                                                        </span>
+                                                    </div>
+                                                    <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full ${maestro.estado === 'Activo' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                        {maestro.estado}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="space-y-1 mt-3 pl-2 text-sm text-slate-600">
+                                                    <div className="flex items-center space-x-2">
+                                                        <i className="fas fa-phone text-slate-400 w-4"></i>
+                                                        <span>{maestro.telefono || 'No registrado'}</span>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                        <i className="fas fa-envelope text-slate-400 w-4"></i>
+                                                        <span className="truncate">{maestro.correo || 'No registrado'}</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-50 pl-2">
+                                                    <button onClick={() => { setMaestroEnEdicion(maestro); setModalFormularioAbierto(true); }} className="w-8 h-8 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg">
+                                                        <i className="fas fa-edit"></i>
+                                                    </button>
+                                                    <button onClick={() => setIdMaestroAEliminar(maestro.id)} className="w-8 h-8 flex items-center justify-center text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg">
+                                                        <i className="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                                
+                                <button 
+                                    onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
+                                    className="fixed bottom-20 right-4 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700"
+                                >
+                                    <i className="fas fa-plus text-xl"></i>
+                                </button>
+                            </div>
+                        )}
+                    </main>
+
+                    <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full z-10">
+                        <div className="flex justify-around items-center">
+                            <button 
+                                onClick={() => setTabActiva('inicio')}
+                                className={`flex flex-col items-center p-3 w-full transition-colors ${tabActiva === 'inicio' ? 'text-indigo-600' : 'text-slate-400'}`}
+                            >
+                                <i className="fas fa-home text-2xl"></i>
+                                <span className="text-[10px] font-medium mt-1">Inicio</span>
+                            </button>
+                            <button 
+                                onClick={() => setTabActiva('lista')}
+                                className={`flex flex-col items-center p-3 w-full transition-colors ${tabActiva === 'lista' ? 'text-indigo-600' : 'text-slate-400'}`}
+                            >
+                                <i className="fas fa-address-book text-2xl"></i>
+                                <span className="text-[10px] font-medium mt-1">Directorio</span>
+                            </button>
+                        </div>
+                    </nav>
+
+                    {/* MODAL FORMULARIO */}
+                    {modalFormularioAbierto && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-end sm:items-center z-50">
+                            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-5 pb-8 shadow-xl">
+                                <div className="flex justify-between items-center mb-4 border-b pb-3">
+                                    <h2 className="text-xl font-bold">{maestroEnEdicion ? 'Editar Maestro' : 'Nuevo Maestro'}</h2>
+                                    <button onClick={() => setModalFormularioAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const formData = new FormData(e.target);
+                                    guardarMaestro(Object.fromEntries(formData.entries()));
+                                }} className="space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700">Nombre Completo *</label>
+                                        <input type="text" name="nombre" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-sm font-medium text-slate-700">Teléfono</label>
+                                            <input type="tel" name="telefono" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-slate-700">Estado</label>
+                                            <select name="estado" defaultValue={maestroEnEdicion?.estado || 'Activo'} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                                <option value="Activo">Activo</option>
+                                                <option value="Inactivo">Inactivo</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700">Clase Asignada</label>
+                                        <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos'].map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <button type="submit" className="w-full mt-2 py-4 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
+                                        {maestroEnEdicion ? 'Guardar Cambios' : 'Registrar'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL ELIMINAR */}
+                    {idMaestroAEliminar && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center">
+                                <i className="fas fa-exclamation-circle text-5xl text-rose-500 mb-4"></i>
+                                <h3 className="text-xl font-bold mb-2">¿Eliminar registro?</h3>
+                                <div className="flex space-x-3 mt-6">
+                                    <button onClick={() => setIdMaestroAEliminar(null)} className="flex-1 py-3 bg-slate-100 text-slate-700 font-medium rounded-xl">Cancelar</button>
+                                    <button onClick={confirmarEliminacion} className="flex-1 py-3 bg-rose-600 text-white font-medium rounded-xl">Eliminar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL COMPARTIR */}
+                    {modalCompartirAbierto && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-end sm:items-center z-50">
+                            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm p-6 pb-10 text-center">
+                                <div className="flex justify-end mb-2">
+                                    <button onClick={() => setModalCompartirAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full flex justify-center items-center">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <i className="fab fa-whatsapp text-5xl text-emerald-500 mb-4"></i>
+                                <h3 className="text-xl font-bold mb-2">Comparte la Aplicación</h3>
+                                <p className="text-slate-600 mb-6 text-sm">Copia el enlace de tu nueva página y envíalo a tu grupo de WhatsApp. ¡Todos verán la misma información!</p>
+                                
+                                <button onClick={copiarEnlacePublico} className={`w-full py-4 text-white font-bold rounded-xl transition-colors flex justify-center items-center space-x-2 ${enlaceCopiado ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
+                                    <i className={enlaceCopiado ? "fas fa-check" : "fas fa-copy"}></i>
+                                    <span>{enlaceCopiado ? '¡Enlace copiado!' : 'Copiar Enlace'}</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
