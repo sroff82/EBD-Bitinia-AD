@@ -25,7 +25,8 @@ import {
   Mail,
   Clock,
   ChevronRight,
-  Settings
+  Settings,
+  Loader2
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN FIREBASE ---
@@ -49,24 +50,29 @@ export default function App() {
   // 1. AUTENTICACIÓN
   useEffect(() => {
     const login = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Error de autenticación:", err);
       }
     };
     login();
-    return onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (!u) setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
   // 2. CARGAR PERFIL DE USUARIO
   useEffect(() => {
     if (!user) return;
     const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
-    return onSnapshot(docRef, (snap) => {
+    const unsubscribe = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setUserData(data);
@@ -77,16 +83,23 @@ export default function App() {
         setView('login');
       }
       setLoading(false);
+    }, (error) => {
+      console.error("Error cargando perfil:", error);
+      setLoading(false);
     });
+    return () => unsubscribe();
   }, [user]);
 
   // 3. CARGAR LISTA DE USUARIOS (SOLO PARA ADMIN)
   useEffect(() => {
     if (userData?.role !== 'admin' || !user) return;
     const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-    return onSnapshot(colRef, (snap) => {
+    const unsubscribe = onSnapshot(colRef, (snap) => {
       setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (error) => {
+      console.error("Error cargando usuarios:", error);
     });
+    return () => unsubscribe();
   }, [userData, user]);
 
   // FUNCIONES DE ACCIÓN
@@ -100,32 +113,53 @@ export default function App() {
       fecha: new Date().toISOString()
     };
     
-    // Guardar en privado y en público para el admin
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), nuevoUsuario);
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), nuevoUsuario);
+    try {
+      // Guardar en privado y en público para el admin
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), nuevoUsuario);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), nuevoUsuario);
+    } catch (err) {
+      console.error("Error al registrar:", err);
+    }
   };
 
   const aprobarUsuario = async (targetUid) => {
-    const refPublica = doc(db, 'artifacts', appId, 'public', 'data', 'users', targetUid);
-    const refPrivada = doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data');
-    await updateDoc(refPublica, { status: 'approved' });
-    await updateDoc(refPrivada, { status: 'approved' });
+    try {
+      const refPublica = doc(db, 'artifacts', appId, 'public', 'data', 'users', targetUid);
+      const refPrivada = doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data');
+      await updateDoc(refPublica, { status: 'approved' });
+      await updateDoc(refPrivada, { status: 'approved' });
+    } catch (err) {
+      console.error("Error al aprobar:", err);
+    }
   };
 
-  if (loading) return <div className="p-10 text-center text-slate-400">Cargando sistema...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+        <p className="text-slate-500 font-medium">Cargando sistema...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* HEADER */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-6 h-6 text-blue-600" />
           <span className="font-bold text-lg tracking-tight">Escuela Dominical</span>
         </div>
         {user && userData && (
-          <button onClick={() => signOut(auth)} className="text-slate-400 hover:text-red-500 transition-colors">
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-bold leading-none">{userData.name}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-tighter">{userData.role}</p>
+            </div>
+            <button onClick={() => signOut(auth)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         )}
       </header>
 
@@ -142,7 +176,7 @@ export default function App() {
                   type="text" 
                   value={nombre}
                   onChange={(e) => setNombre(e.target.value)}
-                  className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   placeholder="Escribe tu nombre..."
                 />
               </div>
@@ -151,7 +185,7 @@ export default function App() {
                 <select 
                   value={rolSeleccionado}
                   onChange={(e) => setRolSeleccionado(e.target.value)}
-                  className="w-full border border-slate-200 p-3 rounded-xl outline-none"
+                  className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white"
                 >
                   <option value="maestro">Maestro / Guía</option>
                   <option value="auxiliar">Auxiliar</option>
@@ -160,7 +194,7 @@ export default function App() {
               </div>
               <button 
                 onClick={registrarse}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-200"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-200 active:scale-[0.98]"
               >
                 Solicitar Ingreso
               </button>
@@ -168,26 +202,38 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA: ESPERA / NOTIFICACIÓN (Basado en tu imagen) */}
+        {/* VISTA: ESPERA / NOTIFICACIÓN */}
         {view === 'pending' && (
           <div className="max-w-xl mx-auto mt-10">
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-              <div className="bg-amber-500 p-4 text-white flex items-center gap-2 font-bold">
+              <div className="bg-amber-500 p-4 text-white flex items-center gap-2 font-bold shadow-inner">
                 <Mail className="w-5 h-5" /> Notificación para el Director
               </div>
               <div className="p-8">
-                <p className="text-slate-600 mb-4 font-medium">Hola Director,</p>
-                <p className="text-slate-600 mb-6">Se ha registrado un nuevo miembro que requiere su validación para usar el sistema:</p>
+                <p className="text-slate-800 mb-4 font-semibold text-lg">Hola Director,</p>
+                <p className="text-slate-600 mb-6">Se ha registrado un nuevo miembro en el sistema y requiere su aprobación:</p>
                 
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3 mb-6">
-                  <p className="text-sm text-slate-700"><strong>Nombre:</strong> {userData?.name}</p>
-                  <p className="text-sm text-slate-700"><strong>Rol solicitado:</strong> {userData?.role}</p>
-                  <p className="text-sm text-slate-700"><strong>Estado:</strong> <span className="text-amber-600 font-bold italic underline">Pendiente de Aprobación</span></p>
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4 mb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <p className="text-sm text-slate-700"><strong>Nombre:</strong> {userData?.name}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <p className="text-sm text-slate-700"><strong>Clase/Rol:</strong> {userData?.role}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                    <p className="text-sm text-slate-700"><strong>Estado:</strong> <span className="text-amber-600 font-bold underline decoration-amber-300">Pendiente de Aprobación</span></p>
+                  </div>
                 </div>
 
-                <div className="flex flex-col items-center py-4 border-t border-slate-100">
-                  <Clock className="w-12 h-12 text-amber-400 mb-2 animate-pulse" />
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest text-center">
+                <div className="flex flex-col items-center py-6 border-t border-slate-100">
+                  <div className="relative mb-4">
+                    <Clock className="w-12 h-12 text-amber-400 animate-pulse" />
+                    <div className="absolute inset-0 bg-amber-400/20 blur-xl rounded-full"></div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] text-center leading-relaxed">
                     Por favor espera a que el director <br/> autorice tu acceso desde su panel.
                   </p>
                 </div>
@@ -199,9 +245,16 @@ export default function App() {
         {/* VISTA: ADMIN */}
         {view === 'admin' && (
           <div className="space-y-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Settings className="w-8 h-8 text-slate-700" />
-              <h1 className="text-2xl font-bold">Panel de Control (Director)</h1>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className="bg-slate-800 p-2 rounded-lg">
+                   <Settings className="w-6 h-6 text-white" />
+                </div>
+                <h1 className="text-2xl font-bold text-slate-800">Panel de Control</h1>
+              </div>
+              <div className="bg-blue-50 text-blue-700 px-4 py-1 rounded-full text-xs font-bold border border-blue-100">
+                Director
+              </div>
             </div>
             
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -215,29 +268,48 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {allUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4 font-bold text-slate-700">{u.name}</td>
-                      <td className="px-6 py-4 text-xs text-slate-500 uppercase">{u.role}</td>
-                      <td className="px-6 py-4">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${u.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                          {u.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {u.status === 'pending' ? (
-                          <button 
-                            onClick={() => aprobarUsuario(u.id)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all"
-                          >
-                            Aprobar
-                          </button>
-                        ) : (
-                          <CheckCircle2 className="w-5 h-5 text-green-500 ml-auto" />
-                        )}
+                  {allUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-10 text-center text-slate-400 text-sm italic">
+                        No hay solicitudes pendientes
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    allUsers.map((u) => (
+                      <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-slate-700">{u.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{u.uid}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded">
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${u.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {u.status === 'approved' ? 'ACTIVO' : 'PENDIENTE'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {u.status === 'pending' ? (
+                            <button 
+                              onClick={() => aprobarUsuario(u.id)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-md shadow-blue-100"
+                            >
+                              Aprobar
+                            </button>
+                          ) : (
+                            <div className="flex justify-end">
+                              <div className="bg-green-50 p-1 rounded-full">
+                                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -246,22 +318,34 @@ export default function App() {
 
         {/* VISTA: DASHBOARD MAESTRO */}
         {view === 'dashboard' && (
-          <div className="text-center py-20">
-            <div className="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-200">
-              <CheckCircle2 className="w-10 h-10 text-white" />
+          <div className="text-center py-16 animate-in fade-in duration-700">
+            <div className="relative inline-block mb-8">
+              <div className="bg-blue-600 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-blue-200">
+                <CheckCircle2 className="w-12 h-12 text-white" />
+              </div>
+              <div className="absolute -bottom-2 -right-2 bg-green-500 w-8 h-8 rounded-full border-4 border-slate-50 flex items-center justify-center">
+                 <ShieldCheck className="w-4 h-4 text-white" />
+              </div>
             </div>
-            <h1 className="text-3xl font-bold text-slate-800">¡Acceso Concedido!</h1>
-            <p className="text-slate-500 mt-2">Bienvenido(a), {userData?.name}. Tu cuenta está activa.</p>
-            <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-lg mx-auto">
-              <button className="p-6 bg-white border border-slate-200 rounded-2xl hover:border-blue-500 transition-colors text-left group">
-                <Users className="w-6 h-6 text-blue-500 mb-2" />
-                <p className="font-bold">Mi Clase</p>
-                <p className="text-xs text-slate-400">Ver listado de alumnos</p>
+            
+            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">¡Bienvenido(a)!</h1>
+            <p className="text-slate-500 mt-3 text-lg">Tu cuenta ha sido autorizada correctamente, <strong>{userData?.name}</strong>.</p>
+            
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl hover:shadow-slate-200 transition-all text-left group">
+                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-500 transition-colors">
+                  <Users className="w-6 h-6 text-blue-600 group-hover:text-white" />
+                </div>
+                <p className="font-bold text-slate-800 text-lg">Mi Clase</p>
+                <p className="text-sm text-slate-400 mt-1">Gestionar alumnos y grupos asignados.</p>
               </button>
-              <button className="p-6 bg-white border border-slate-200 rounded-2xl hover:border-blue-500 transition-colors text-left group">
-                <ChevronRight className="w-6 h-6 text-blue-500 mb-2" />
-                <p className="font-bold">Asistencia</p>
-                <p className="text-xs text-slate-400">Pasar lista hoy</p>
+              
+              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl hover:shadow-slate-200 transition-all text-left group">
+                <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-green-500 transition-colors">
+                  <ChevronRight className="w-6 h-6 text-green-600 group-hover:text-white" />
+                </div>
+                <p className="font-bold text-slate-800 text-lg">Asistencia</p>
+                <p className="text-sm text-slate-400 mt-1">Registrar la asistencia de hoy rápidamente.</p>
               </button>
             </div>
           </div>
