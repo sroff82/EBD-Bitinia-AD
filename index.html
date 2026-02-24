@@ -1,360 +1,365 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
-  onAuthStateChanged, 
-  signOut 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  collection, 
-  onSnapshot, 
-  updateDoc 
-} from 'firebase/firestore';
-import { 
-  ShieldCheck, 
-  Users, 
-  LogOut, 
-  CheckCircle2, 
-  Clock,
-  ChevronRight,
-  Settings,
-  Loader2,
-  BellRing
-} from 'lucide-react';
-
-// --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'escuela-dominical-v1';
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [allUsers, setAllUsers] = useState([]);
-  const [view, setView] = useState('login'); // login, pending, dashboard, admin
-  const [loading, setLoading] = useState(true);
-  
-  // Estado para el formulario de registro
-  const [nombre, setNombre] = useState('');
-  const [rolSeleccionado, setRolSeleccionado] = useState('maestro');
-
-  // 1. Manejo de Autenticación
-  useEffect(() => {
-    const performAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
-    };
-    performAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (!currentUser) {
-        setLoading(false);
-        setView('login');
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Observador de Datos de Usuario
-  useEffect(() => {
-    if (!user) return;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escuela Dominical</title>
     
-    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
-    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setUserData(data);
-        
-        // Lógica de redirección basada en rol y estado
-        if (data.role === 'admin') {
-          setView('admin');
-        } else if (data.status === 'approved') {
-          setView('dashboard');
-        } else {
-          setView('pending');
+    <!-- Configuración para la pantalla de inicio del móvil -->
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwMCIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI1NiI+8J+SmDwvdGV4dD48L3N2Zz4=">
+
+    <!-- Tailwind CSS (Diseño) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome (Íconos) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- React y Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase (Base de Datos) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ======================================================================
+        // 1. REEMPLAZA ESTO CON LA CONFIGURACIÓN DE TU PROYECTO FIREBASE
+        // ======================================================================
+
+        // ======================================================================
+
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
         }
-      } else {
-        setView('login');
-      }
-      setLoading(false);
-    }, (error) => {
-      console.error("Error al obtener perfil:", error);
-      setLoading(false);
-    });
+        const db = firebase.firestore();
 
-    return () => unsubscribe();
-  }, [user]);
+        function App() {
+            const [maestros, setMaestros] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [tabActiva, setTabActiva] = useState('inicio');
+            const [busqueda, setBusqueda] = useState('');
+            
+            const [modalFormularioAbierto, setModalFormularioAbierto] = useState(false);
+            const [maestroEnEdicion, setMaestroEnEdicion] = useState(null);
+            const [idMaestroAEliminar, setIdMaestroAEliminar] = useState(null);
+            const [modalCompartirAbierto, setModalCompartirAbierto] = useState(false);
+            const [enlaceCopiado, setEnlaceCopiado] = useState(false);
 
-  // 3. Panel de Administración (Observar todos los usuarios)
-  useEffect(() => {
-    if (userData?.role !== 'admin' || !user) return;
+            // Cargar datos desde tu base de datos Firebase
+            useEffect(() => {
+                // Prevenir error si la configuración está vacía
+                if (firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY") {
+                    setCargando(false);
+                    return;
+                }
 
-    const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'userRegistry');
-    const unsubscribe = onSnapshot(usersCol, (snapshot) => {
-      const usersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAllUsers(usersList);
-    }, (error) => {
-      console.error("Error al cargar lista de usuarios:", error);
-    });
-
-    return () => unsubscribe();
-  }, [userData, user]);
-
-  // FUNCIONES DE NEGOCIO
-  const handleRegister = async () => {
-    if (!nombre.trim() || !user) return;
-
-    const profileData = {
-      uid: user.uid,
-      name: nombre,
-      role: rolSeleccionado,
-      status: rolSeleccionado === 'admin' ? 'approved' : 'pending',
-      createdAt: new Date().toISOString()
-    };
-
-    try {
-      // Guardar en la ruta privada del usuario
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), profileData);
-      // Guardar en la ruta pública para que el admin lo vea
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', user.uid), profileData);
-    } catch (err) {
-      console.error("Error al registrar perfil:", err);
-    }
-  };
-
-  const approveUser = async (targetUid) => {
-    try {
-      const publicDoc = doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', targetUid);
-      const privateDoc = doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data');
-      
-      await updateDoc(publicDoc, { status: 'approved' });
-      await updateDoc(privateDoc, { status: 'approved' });
-    } catch (err) {
-      console.error("Error al aprobar usuario:", err);
-    }
-  };
-
-  // ESTADOS DE CARGA
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
-        <p className="text-slate-500 font-medium">Cargando sistema...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      {/* HEADER PRINCIPAL */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-6 h-6 text-blue-600" />
-          <span className="font-bold text-lg tracking-tight">Escuela Dominical</span>
-        </div>
-        {user && userData && (
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold leading-none text-slate-700">{userData.name}</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-tighter">{userData.role}</p>
-            </div>
-            <button onClick={() => signOut(auth)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        )}
-      </header>
-
-      <main className="max-w-4xl mx-auto p-6">
-        
-        {/* VISTA: REGISTRO */}
-        {view === 'login' && (
-          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-100 mt-10">
-            <h2 className="text-2xl font-bold mb-6 text-slate-800">Acceso al Sistema</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Nombre Completo</label>
-                <input 
-                  type="text" 
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  placeholder="Tu nombre aquí..."
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tu Función</label>
-                <select 
-                  value={rolSeleccionado}
-                  onChange={(e) => setRolSeleccionado(e.target.value)}
-                  className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white"
-                >
-                  <option value="maestro">Maestro / Guía</option>
-                  <option value="auxiliar">Auxiliar de Clase</option>
-                  <option value="admin">Director / Administrador</option>
-                </select>
-              </div>
-              <button 
-                onClick={handleRegister}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-100 active:scale-[0.98]"
-              >
-                Registrar Solicitud
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* VISTA: ESPERA (DISEÑO BASADO EN TU IMAGEN) */}
-        {view === 'pending' && (
-          <div className="max-w-xl mx-auto mt-10">
-            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-              <div className="bg-[#fdf8f4] border-b border-orange-100 p-6">
-                <h3 className="text-slate-800 text-xl font-medium mb-4">Hola Director,</h3>
-                <p className="text-slate-600 mb-6 leading-relaxed">
-                  Se ha registrado un nuevo miembro en el sistema y requiere su aprobación:
-                </p>
+                const unsubscribe = db.collection('maestros').onSnapshot((snapshot) => {
+                    const data = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    data.sort((a, b) => a.nombre.localeCompare(b.nombre));
+                    setMaestros(data);
+                    setCargando(false);
+                }, (error) => {
+                    console.error("Error de Firebase (revisa reglas o configuración):", error);
+                    setCargando(false);
+                });
                 
-                <ul className="space-y-3 mb-6">
-                  <li className="flex items-baseline gap-2">
-                    <span className="font-bold text-slate-800">• Nombre:</span>
-                    <span className="text-slate-600">{userData?.name}</span>
-                  </li>
-                  <li className="flex items-baseline gap-2">
-                    <span className="font-bold text-slate-800">• Clase/Rol:</span>
-                    <span className="text-slate-600 font-medium capitalize">{userData?.role}</span>
-                  </li>
-                  <li className="flex items-baseline gap-2">
-                    <span className="font-bold text-slate-800">• Registrado por:</span>
-                    <span className="text-slate-600 italic">Auto-registro</span>
-                  </li>
-                </ul>
+                return () => unsubscribe();
+            }, []);
 
-                <p className="text-slate-600 font-medium">
-                  Por favor, ingrese al Panel de Control para activar este registro.
-                </p>
-              </div>
-              <div className="p-6 bg-slate-50 flex items-center justify-center gap-3">
-                <Clock className="w-5 h-5 text-amber-500 animate-pulse" />
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                  Esperando aprobación del director...
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+            const totalMaestros = maestros.length;
+            const maestrosActivos = maestros.filter(m => m.estado === 'Activo').length;
+            const clasesDistintas = new Set(maestros.map(m => m.clase)).size;
 
-        {/* VISTA: ADMINISTRADOR */}
-        {view === 'admin' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <Settings className="w-6 h-6 text-slate-400" />
-                Panel de Gestión
-              </h1>
-              <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md">
-                Admin Mode
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    <th className="px-6 py-4">Usuario Solicitante</th>
-                    <th className="px-6 py-4">Rol Propuesto</th>
-                    <th className="px-6 py-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {allUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan="3" className="px-6 py-12 text-center text-slate-400 italic">
-                        No hay usuarios registrados aún.
-                      </td>
-                    </tr>
-                  ) : (
-                    allUsers.map((u) => (
-                      <tr key={u.id} className="group hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-bold text-slate-700">{u.name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{u.id}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded capitalize">
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {u.status === 'pending' ? (
-                            <button 
-                              onClick={() => approveUser(u.id)}
-                              className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-md shadow-green-100 active:scale-95"
-                            >
-                              Dar Acceso
-                            </button>
-                          ) : (
-                            <div className="inline-flex items-center gap-1 text-green-500 font-bold text-xs">
-                              <CheckCircle2 className="w-4 h-4" /> Activo
+            const guardarMaestro = async (datosMaestro) => {
+                try {
+                    if (maestroEnEdicion) {
+                        await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
+                    } else {
+                        await db.collection('maestros').add({ ...datosMaestro, createdAt: Date.now() });
+                    }
+                    setModalFormularioAbierto(false);
+                    setMaestroEnEdicion(null);
+                } catch (error) {
+                    alert("Error al guardar. Verifica tu Firebase.");
+                }
+            };
+
+            const confirmarEliminacion = async () => {
+                try {
+                    await db.collection('maestros').doc(idMaestroAEliminar).delete();
+                    setIdMaestroAEliminar(null);
+                } catch (error) {
+                    console.error("Error al eliminar:", error);
+                }
+            };
+
+            const copiarEnlacePublico = () => {
+                const url = window.location.href;
+                navigator.clipboard.writeText(url).then(() => {
+                    setEnlaceCopiado(true);
+                    setTimeout(() => setEnlaceCopiado(false), 3000);
+                });
+            };
+
+            const maestrosFiltrados = maestros.filter(m => 
+                m.nombre.toLowerCase().includes(busqueda.toLowerCase()) || 
+                m.clase.toLowerCase().includes(busqueda.toLowerCase())
+            );
+
+            return (
+                <div className="flex flex-col h-screen font-sans">
+                    <header className="bg-indigo-600 text-white p-4 shadow-md z-10 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-xl font-bold">Escuela Dominical</h1>
+                            <p className="text-indigo-200 text-xs mt-1">Registro de Maestros</p>
+                        </div>
+                        <button 
+                            onClick={() => setModalCompartirAbierto(true)}
+                            className="w-10 h-10 bg-indigo-500 rounded-full hover:bg-indigo-400 transition-colors flex items-center justify-center shadow-sm"
+                        >
+                            <i className="fas fa-share-alt text-lg"></i>
+                        </button>
+                    </header>
+
+                    <main className="flex-1 overflow-y-auto p-4 pb-20 relative bg-slate-50">
+                        {cargando && (
+                            <div className="absolute inset-0 bg-slate-50/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                                <i className="fas fa-circle-notch fa-spin text-4xl text-indigo-600 mb-2"></i>
+                                <p className="text-indigo-600 font-medium">Conectando...</p>
                             </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                        )}
 
-        {/* VISTA: DASHBOARD MAESTRO */}
-        {view === 'dashboard' && (
-          <div className="text-center py-16 animate-in fade-in duration-1000">
-            <div className="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-blue-200 mb-8">
-              <CheckCircle2 className="w-10 h-10 text-white" />
-            </div>
-            
-            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">¡Bienvenido(a)!</h1>
-            <p className="text-slate-500 mt-4 text-lg">
-              Tu acceso ha sido autorizado, <span className="text-blue-600 font-bold">{userData?.name}</span>.
-            </p>
-            
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl transition-all text-left group">
-                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <Users className="w-6 h-6 text-blue-600 group-hover:text-white" />
-                </div>
-                <p className="font-bold text-slate-800 text-lg">Mi Clase</p>
-                <p className="text-sm text-slate-400 mt-1">Ver lista de alumnos y registrar asistencia.</p>
-              </button>
-              
-              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl transition-all text-left group">
-                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-slate-800 group-hover:text-white transition-colors">
-                  <BellRing className="w-6 h-6 text-slate-600 group-hover:text-white" />
-                </div>
-                <p className="font-bold text-slate-800 text-lg">Anuncios</p>
-                <p className="text-sm text-slate-400 mt-1">Notificaciones y avisos de la dirección.</p>
-              </button>
-            </div>
-          </div>
-        )}
+                        {firebaseConfig.apiKey === "PEGA_AQUI_TU_API_KEY" && (
+                            <div className="bg-rose-100 border-l-4 border-rose-500 p-4 mb-4 rounded shadow-sm text-sm text-rose-800">
+                                <strong><i className="fas fa-exclamation-triangle mr-2"></i> Falta la Base de Datos</strong><br/>
+                                Para guardar información, debes agregar tu configuración de Firebase en el código del archivo index.html.
+                            </div>
+                        )}
 
-      </main>
-    </div>
-  );
-}
+                        {tabActiva === 'inicio' && (
+                            <div className="space-y-6">
+                                <h2 className="text-lg font-semibold text-slate-700">Resumen del Ministerio</h2>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                                        <i className="fas fa-users text-indigo-500 mb-2 text-3xl"></i>
+                                        <span className="text-3xl font-bold text-slate-800">{totalMaestros}</span>
+                                        <span className="text-xs text-slate-500 uppercase tracking-wider mt-1 text-center">Registrados</span>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                                        <i className="fas fa-user-check text-emerald-500 mb-2 text-3xl"></i>
+                                        <span className="text-3xl font-bold text-slate-800">{maestrosActivos}</span>
+                                        <span className="text-xs text-slate-500 uppercase tracking-wider mt-1">Activos</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                        <i className="fas fa-book-open text-amber-500 text-xl"></i>
+                                        <h3 className="font-medium">Clases Cubiertas</h3>
+                                    </div>
+                                    <p className="text-2xl font-bold text-slate-800">{clasesDistintas}</p>
+                                </div>
+
+                                <button 
+                                    onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-xl font-medium shadow-md transition-colors flex items-center justify-center space-x-2"
+                                >
+                                    <i className="fas fa-user-plus text-xl"></i>
+                                    <span>Registrar Nuevo Maestro</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {tabActiva === 'lista' && (
+                            <div className="space-y-4">
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <i className="fas fa-search text-slate-400"></i>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar maestro o clase..."
+                                        value={busqueda}
+                                        onChange={(e) => setBusqueda(e.target.value)}
+                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm transition-all"
+                                    />
+                                </div>
+
+                                <div className="space-y-3 mt-4">
+                                    {maestrosFiltrados.length === 0 && !cargando ? (
+                                        <div className="text-center py-10 text-slate-500">
+                                            <i className="fas fa-user-slash text-4xl text-slate-300 mb-3"></i>
+                                            <p>No se encontraron maestros.</p>
+                                        </div>
+                                    ) : (
+                                        maestrosFiltrados.map((maestro) => (
+                                            <div key={maestro.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex flex-col relative overflow-hidden">
+                                                <div className={`absolute left-0 top-0 bottom-0 w-1 ${maestro.estado === 'Activo' ? 'bg-emerald-500' : 'bg-rose-400'}`}></div>
+                                                
+                                                <div className="flex justify-between items-start mb-2 pl-2">
+                                                    <div>
+                                                        <h3 className="font-bold text-lg text-slate-800">{maestro.nombre}</h3>
+                                                        <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-md mt-1">
+                                                            {maestro.clase}
+                                                        </span>
+                                                    </div>
+                                                    <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full ${maestro.estado === 'Activo' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                        {maestro.estado}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="space-y-1 mt-3 pl-2 text-sm text-slate-600">
+                                                    <div className="flex items-center space-x-2">
+                                                        <i className="fas fa-phone text-slate-400 w-4"></i>
+                                                        <span>{maestro.telefono || 'No registrado'}</span>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                        <i className="fas fa-envelope text-slate-400 w-4"></i>
+                                                        <span className="truncate">{maestro.correo || 'No registrado'}</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex justify-end space-x-2 mt-4 pt-3 border-t border-slate-50 pl-2">
+                                                    <button onClick={() => { setMaestroEnEdicion(maestro); setModalFormularioAbierto(true); }} className="w-8 h-8 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg">
+                                                        <i className="fas fa-edit"></i>
+                                                    </button>
+                                                    <button onClick={() => setIdMaestroAEliminar(maestro.id)} className="w-8 h-8 flex items-center justify-center text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg">
+                                                        <i className="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                                
+                                <button 
+                                    onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
+                                    className="fixed bottom-20 right-4 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700"
+                                >
+                                    <i className="fas fa-plus text-xl"></i>
+                                </button>
+                            </div>
+                        )}
+                    </main>
+
+                    <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full z-10">
+                        <div className="flex justify-around items-center">
+                            <button 
+                                onClick={() => setTabActiva('inicio')}
+                                className={`flex flex-col items-center p-3 w-full transition-colors ${tabActiva === 'inicio' ? 'text-indigo-600' : 'text-slate-400'}`}
+                            >
+                                <i className="fas fa-home text-2xl"></i>
+                                <span className="text-[10px] font-medium mt-1">Inicio</span>
+                            </button>
+                            <button 
+                                onClick={() => setTabActiva('lista')}
+                                className={`flex flex-col items-center p-3 w-full transition-colors ${tabActiva === 'lista' ? 'text-indigo-600' : 'text-slate-400'}`}
+                            >
+                                <i className="fas fa-address-book text-2xl"></i>
+                                <span className="text-[10px] font-medium mt-1">Directorio</span>
+                            </button>
+                        </div>
+                    </nav>
+
+                    {/* MODAL FORMULARIO */}
+                    {modalFormularioAbierto && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-end sm:items-center z-50">
+                            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-5 pb-8 shadow-xl">
+                                <div className="flex justify-between items-center mb-4 border-b pb-3">
+                                    <h2 className="text-xl font-bold">{maestroEnEdicion ? 'Editar Maestro' : 'Nuevo Maestro'}</h2>
+                                    <button onClick={() => setModalFormularioAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const formData = new FormData(e.target);
+                                    guardarMaestro(Object.fromEntries(formData.entries()));
+                                }} className="space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700">Nombre Completo *</label>
+                                        <input type="text" name="nombre" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-sm font-medium text-slate-700">Teléfono</label>
+                                            <input type="tel" name="telefono" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl" />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium text-slate-700">Estado</label>
+                                            <select name="estado" defaultValue={maestroEnEdicion?.estado || 'Activo'} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                                <option value="Activo">Activo</option>
+                                                <option value="Inactivo">Inactivo</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-slate-700">Clase Asignada</label>
+                                        <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos'].map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <button type="submit" className="w-full mt-2 py-4 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
+                                        {maestroEnEdicion ? 'Guardar Cambios' : 'Registrar'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL ELIMINAR */}
+                    {idMaestroAEliminar && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center">
+                                <i className="fas fa-exclamation-circle text-5xl text-rose-500 mb-4"></i>
+                                <h3 className="text-xl font-bold mb-2">¿Eliminar registro?</h3>
+                                <div className="flex space-x-3 mt-6">
+                                    <button onClick={() => setIdMaestroAEliminar(null)} className="flex-1 py-3 bg-slate-100 text-slate-700 font-medium rounded-xl">Cancelar</button>
+                                    <button onClick={confirmarEliminacion} className="flex-1 py-3 bg-rose-600 text-white font-medium rounded-xl">Eliminar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL COMPARTIR */}
+                    {modalCompartirAbierto && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-end sm:items-center z-50">
+                            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm p-6 pb-10 text-center">
+                                <div className="flex justify-end mb-2">
+                                    <button onClick={() => setModalCompartirAbierto(false)} className="w-8 h-8 bg-slate-100 text-slate-500 rounded-full flex justify-center items-center">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <i className="fab fa-whatsapp text-5xl text-emerald-500 mb-4"></i>
+                                <h3 className="text-xl font-bold mb-2">Comparte la Aplicación</h3>
+                                <p className="text-slate-600 mb-6 text-sm">Copia el enlace de tu nueva página y envíalo a tu grupo de WhatsApp. ¡Todos verán la misma información!</p>
+                                
+                                <button onClick={copiarEnlacePublico} className={`w-full py-4 text-white font-bold rounded-xl transition-colors flex justify-center items-center space-x-2 ${enlaceCopiado ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
+                                    <i className={enlaceCopiado ? "fas fa-check" : "fas fa-copy"}></i>
+                                    <span>{enlaceCopiado ? '¡Enlace copiado!' : 'Copiar Enlace'}</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
