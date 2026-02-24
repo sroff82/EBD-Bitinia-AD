@@ -18,7 +18,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     
-    <!-- SDK para envío de correos -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased h-screen overflow-hidden">
@@ -27,7 +26,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ✅ Tu Public Key ya está configurada aquí
+        // Configuración de EmailJS
         emailjs.init("7l-eHxFpu6r0bbHUV"); 
 
         const firebaseConfig = {
@@ -67,35 +66,37 @@
             const [claveIngresada, setClaveIngresada] = useState('');
             const [errorLogin, setErrorLogin] = useState('');
 
+            // Recuperar sesión
             useEffect(() => {
                 const sesionGuardada = localStorage.getItem('rol_dominical');
                 if (sesionGuardada) setUsuario(sesionGuardada);
             }, []);
 
+            // Escuchar cambios en Firestore
             useEffect(() => {
                 const unsubscribe = db.collection('maestros').onSnapshot((snapshot) => {
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     data.sort((a, b) => a.nombre.localeCompare(b.nombre));
                     setMaestros(data);
                     setCargando(false);
+                }, (error) => {
+                    console.error("Error Firestore:", error);
                 });
                 return () => unsubscribe();
             }, []);
 
             const enviarNotificacionCorreo = (datos) => {
-                // ⚠️ RECUERDA: Cambia estos dos por los que aparecen en tu panel de EmailJS
                 const SERVICE_ID = "service_475d2ya"; 
                 const TEMPLATE_ID = "template_516xc7k";
 
-                // Solo intenta enviar si ya cambiaste los IDs de arriba
-                if (SERVICE_ID.includes("service_") && !SERVICE_ID.includes("xxxx")) {
+                if (SERVICE_ID && TEMPLATE_ID) {
                     emailjs.send(SERVICE_ID, TEMPLATE_ID, {
                         to_name: "Director",
-                        from_name: datos.registradoPor,
+                        from_name: datos.registradoPor || "Usuario",
                         new_member: datos.nombre,
                         role: datos.clase
                     }).then(() => {
-                        console.log("Notificación enviada al Director");
+                        console.log("Notificación enviada con éxito");
                     }).catch((err) => {
                         console.error("Error EmailJS:", err);
                     });
@@ -108,6 +109,7 @@
                 if (claveIngresada === CLAVES[rolSeleccionado]) {
                     setUsuario(rolSeleccionado);
                     localStorage.setItem('rol_dominical', rolSeleccionado);
+                    setClaveIngresada('');
                 } else {
                     setErrorLogin('Clave incorrecta.');
                 }
@@ -116,6 +118,7 @@
             const cerrarSesion = () => {
                 setUsuario(null);
                 localStorage.removeItem('rol_dominical');
+                setTabActiva('inicio');
             };
 
             const guardarMaestro = async (datosMaestro) => {
@@ -133,13 +136,14 @@
                         
                         if (usuario !== 'ADMIN') {
                             enviarNotificacionCorreo(nuevoRegistro);
-                            alert("Registro enviado. El Director recibirá un correo para aprobarlo.");
+                            // Usamos un modal o un simple mensaje en lugar de alert si fuera posible, 
+                            // pero mantenemos la lógica funcional.
                         }
                     }
                     setModalFormularioAbierto(false);
                     setMaestroEnEdicion(null);
                 } catch (error) {
-                    console.error("Error:", error);
+                    console.error("Error al guardar:", error);
                 }
             };
 
@@ -172,7 +176,7 @@
                             <form onSubmit={manejarLogin} className="space-y-4">
                                 <select 
                                     required
-                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
+                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium appearance-none"
                                     value={rolSeleccionado}
                                     onChange={(e) => setRolSeleccionado(e.target.value)}
                                 >
@@ -201,7 +205,7 @@
             }
 
             return (
-                <div className="flex flex-col h-screen">
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-white shadow-2xl">
                     <header className="bg-white p-5 flex justify-between items-center border-b border-slate-100">
                         <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Gestión Ministerial</p>
@@ -209,7 +213,7 @@
                                 {usuario === 'ADMIN' ? 'Panel Director' : `Sesión: ${usuario.toLowerCase()}`}
                             </h1>
                         </div>
-                        <button onClick={cerrarSesion} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-400 flex items-center justify-center">
+                        <button onClick={cerrarSesion} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-400 flex items-center justify-center active:bg-rose-50 active:text-rose-500 transition-colors">
                             <i className="fas fa-sign-out-alt"></i>
                         </button>
                     </header>
@@ -218,20 +222,20 @@
                         {tabActiva === 'inicio' && (
                             <div className="space-y-6">
                                 {esAdmin && pendientes.length > 0 && (
-                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-[32px] animate-pulse">
+                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-[32px]">
                                         <h3 className="text-amber-800 font-bold text-sm mb-3 flex items-center">
-                                            <i className="fas fa-exclamation-circle mr-2"></i> Por Aprobar ({pendientes.length})
+                                            <i className="fas fa-exclamation-circle mr-2"></i> Solicitudes Pendientes ({pendientes.length})
                                         </h3>
                                         <div className="space-y-3">
                                             {pendientes.map(p => (
-                                                <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center">
+                                                <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center border border-amber-100">
                                                     <div>
                                                         <p className="font-bold text-slate-700 text-sm">{p.nombre}</p>
                                                         <p className="text-[10px] text-slate-400 font-bold uppercase">{p.clase}</p>
                                                     </div>
                                                     <div className="flex space-x-2">
-                                                        <button onClick={() => aprobarMaestro(p.id)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg text-xs"><i className="fas fa-check"></i></button>
-                                                        <button onClick={() => setIdMaestroAEliminar(p.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-lg text-xs"><i className="fas fa-trash"></i></button>
+                                                        <button onClick={() => aprobarMaestro(p.id)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 shadow-md"><i className="fas fa-check"></i></button>
+                                                        <button onClick={() => setIdMaestroAEliminar(p.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-lg text-xs hover:bg-rose-200"><i className="fas fa-trash"></i></button>
                                                     </div>
                                                 </div>
                                             ))}
@@ -241,14 +245,14 @@
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-indigo-600 p-5 rounded-[32px] text-white shadow-xl shadow-indigo-100">
-                                        <p className="text-[10px] font-bold uppercase opacity-60">Activos</p>
+                                        <p className="text-[10px] font-bold uppercase opacity-60">Maestros Activos</p>
                                         <p className="text-4xl font-black">{maestros.filter(m => m.estado === 'Activo').length}</p>
                                     </div>
                                     <button 
                                         onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
-                                        className="bg-white p-5 rounded-[32px] border border-slate-100 flex flex-col justify-between text-left shadow-sm active:scale-95 transition-all"
+                                        className="bg-white p-5 rounded-[32px] border border-slate-100 flex flex-col justify-between text-left shadow-sm active:scale-95 transition-all group"
                                     >
-                                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                                             <i className="fas fa-plus"></i>
                                         </div>
                                         <p className="font-bold text-slate-700 leading-tight">Nueva<br/>Inscripción</p>
@@ -256,7 +260,10 @@
                                 </div>
 
                                 <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100">
-                                    <h3 className="font-bold text-slate-800 mb-4">Contactos Recientes</h3>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-slate-800">Directorio Rápido</h3>
+                                        <button onClick={() => setTabActiva('lista')} className="text-indigo-500 text-[10px] font-bold uppercase">Ver todos</button>
+                                    </div>
                                     <div className="space-y-4">
                                         {maestros.filter(m => m.estado === 'Activo').slice(0, 4).map(m => (
                                             <div key={m.id} className="flex items-center justify-between">
@@ -270,12 +277,15 @@
                                                     </div>
                                                 </div>
                                                 {m.telefono && (
-                                                    <a href={`tel:${m.telefono}`} className="text-indigo-500 w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                                                    <a href={`tel:${m.telefono}`} className="text-indigo-500 w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center active:bg-indigo-500 active:text-white transition-colors">
                                                         <i className="fas fa-phone-alt text-xs"></i>
                                                     </a>
                                                 )}
                                             </div>
                                         ))}
+                                        {maestros.filter(m => m.estado === 'Activo').length === 0 && (
+                                            <p className="text-center text-slate-400 text-xs py-4 italic">No hay registros activos aún.</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -283,7 +293,7 @@
 
                         {tabActiva === 'lista' && (
                             <div className="space-y-4">
-                                <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex items-center px-4">
+                                <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex items-center px-4 sticky top-0 z-10">
                                     <i className="fas fa-search text-slate-300 mr-3"></i>
                                     <input
                                         type="text"
@@ -292,79 +302,116 @@
                                         onChange={(e) => setBusqueda(e.target.value)}
                                         className="w-full py-3 focus:outline-none bg-transparent"
                                     />
+                                    {busqueda && (
+                                        <button onClick={() => setBusqueda('')} className="text-slate-300">
+                                            <i className="fas fa-times-circle"></i>
+                                        </button>
+                                    )}
                                 </div>
 
-                                {maestrosVisibles.map((m) => (
-                                    <div key={m.id} className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100 relative overflow-hidden">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">{m.clase}</p>
-                                                <h3 className="font-bold text-slate-800 text-lg">{m.nombre}</h3>
+                                <div className="space-y-3">
+                                    {maestrosVisibles.map((m) => (
+                                        <div key={m.id} className="bg-white rounded-[32px] p-5 shadow-sm border border-slate-100 relative overflow-hidden group">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1">
+                                                    <span className={`inline-block px-2 py-1 rounded-md text-[8px] font-black uppercase mb-2 ${m.estado === 'Pendiente' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-50 text-indigo-500'}`}>
+                                                        {m.clase}
+                                                    </span>
+                                                    <h3 className="font-bold text-slate-800 text-base">{m.nombre}</h3>
+                                                    {m.telefono && <p className="text-slate-400 text-xs mt-1"><i className="fab fa-whatsapp mr-1"></i> {m.telefono}</p>}
+                                                </div>
+                                                {m.telefono && (
+                                                    <a href={`https://wa.me/${m.telefono.replace(/\D/g,'')}`} target="_blank" className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shadow-sm">
+                                                        <i className="fab fa-whatsapp text-xl"></i>
+                                                    </a>
+                                                )}
                                             </div>
-                                            {m.telefono && (
-                                                <a href={`https://wa.me/${m.telefono.replace(/\D/g,'')}`} target="_blank" className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-                                                    <i className="fab fa-whatsapp text-xl"></i>
-                                                </a>
+                                            
+                                            {esAdmin && (
+                                                <div className="flex border-t border-slate-50 pt-3 mt-3 space-x-2">
+                                                    <button onClick={() => { setMaestroEnEdicion(m); setModalFormularioAbierto(true); }} className="flex-1 py-2 bg-slate-50 text-slate-500 text-[10px] font-black uppercase rounded-lg active:bg-indigo-50 active:text-indigo-600 transition-colors">
+                                                        <i className="fas fa-edit mr-1"></i> Editar
+                                                    </button>
+                                                    <button onClick={() => setIdMaestroAEliminar(m.id)} className="px-4 py-2 bg-rose-50 text-rose-400 rounded-lg text-[10px] active:bg-rose-500 active:text-white transition-colors">
+                                                        <i className="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
-                                        
-                                        {esAdmin && (
-                                            <div className="flex border-t border-slate-50 pt-4 mt-2 space-x-2">
-                                                <button onClick={() => { setMaestroEnEdicion(m); setModalFormularioAbierto(true); }} className="flex-1 py-2 bg-slate-50 text-slate-500 text-[10px] font-black uppercase rounded-lg">Editar</button>
-                                                <button onClick={() => setIdMaestroAEliminar(m.id)} className="px-4 py-2 bg-rose-50 text-rose-400 rounded-lg text-[10px]"><i className="fas fa-trash"></i></button>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+                                    ))}
+                                    {maestrosVisibles.length === 0 && (
+                                        <div className="text-center py-20 text-slate-300">
+                                            <i className="fas fa-user-slash text-4xl mb-4"></i>
+                                            <p className="text-sm font-medium">No se encontraron resultados</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </main>
 
-                    <nav className="bg-white border-t border-slate-100 fixed bottom-0 w-full h-20 flex justify-around items-center px-10">
-                        <button onClick={() => setTabActiva('inicio')} className={`flex flex-col items-center ${tabActiva === 'inicio' ? 'text-indigo-600' : 'text-slate-300'}`}>
+                    <nav className="bg-white border-t border-slate-100 fixed bottom-0 w-full max-w-md h-20 flex justify-around items-center px-4 z-40">
+                        <button onClick={() => setTabActiva('inicio')} className={`flex flex-col items-center flex-1 transition-all ${tabActiva === 'inicio' ? 'text-indigo-600 scale-110' : 'text-slate-300'}`}>
                             <i className="fas fa-home text-xl"></i>
                             <span className="text-[9px] font-black uppercase mt-1">Inicio</span>
                         </button>
-                        <button onClick={() => setTabActiva('lista')} className={`flex flex-col items-center ${tabActiva === 'lista' ? 'text-indigo-600' : 'text-slate-300'}`}>
+                        <button onClick={() => setTabActiva('lista')} className={`flex flex-col items-center flex-1 transition-all ${tabActiva === 'lista' ? 'text-indigo-600 scale-110' : 'text-slate-300'}`}>
                             <div className="relative">
                                 <i className="fas fa-users text-xl"></i>
-                                {esAdmin && pendientes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
+                                {esAdmin && pendientes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>}
                             </div>
                             <span className="text-[9px] font-black uppercase mt-1">Directorio</span>
                         </button>
                     </nav>
 
+                    {/* MODAL FORMULARIO */}
                     {modalFormularioAbierto && (
                         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center z-50">
-                            <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-8 pb-12 shadow-2xl">
+                            <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-8 pb-12 shadow-2xl animate-in slide-in-from-bottom duration-300">
+                                <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-6 sm:hidden"></div>
                                 <h2 className="text-2xl font-black text-slate-800 mb-6">{maestroEnEdicion ? 'Editar Registro' : 'Inscribir Nuevo'}</h2>
                                 <form onSubmit={(e) => {
                                     e.preventDefault();
                                     const formData = new FormData(e.target);
                                     guardarMaestro(Object.fromEntries(formData.entries()));
                                 }} className="space-y-4">
-                                    <input type="text" name="nombre" placeholder="Nombre y Apellidos" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                                    <input type="tel" name="telefono" placeholder="Número de WhatsApp" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none" />
-                                    <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full p-4 bg-slate-50 rounded-2xl outline-none">
-                                        {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'Logística', 'Dirección'].map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl mt-4 active:scale-95 transition-all">
-                                        {esAdmin ? 'Guardar Cambios' : 'Enviar Solicitud'}
-                                    </button>
-                                    <button type="button" onClick={() => setModalFormularioAbierto(false)} className="w-full py-2 text-slate-300 font-bold text-xs uppercase tracking-widest mt-2">Cancelar</button>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Nombre Completo</label>
+                                        <input type="text" name="nombre" placeholder="Ej. Juan Pérez" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">WhatsApp (Opcional)</label>
+                                        <input type="tel" name="telefono" placeholder="Ej. 12345678" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Clase / Ministerio</label>
+                                        <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
+                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'Logística', 'Dirección'].map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="pt-4 flex flex-col space-y-3">
+                                        <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl active:scale-95 transition-all">
+                                            {esAdmin ? 'Confirmar Cambios' : 'Enviar para Aprobación'}
+                                        </button>
+                                        <button type="button" onClick={() => setModalFormularioAbierto(false)} className="w-full py-2 text-slate-400 font-bold text-[10px] uppercase tracking-widest transition-colors hover:text-rose-500">Cancelar</button>
+                                    </div>
                                 </form>
                             </div>
                         </div>
                     )}
 
+                    {/* MODAL ELIMINAR */}
                     {idMaestroAEliminar && (
-                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-6">
-                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs text-center">
-                                <h3 className="text-xl font-bold">¿Borrar registro?</h3>
-                                <p className="text-slate-400 text-sm mb-6 mt-2">Esta acción eliminará los datos permanentemente de la nube.</p>
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-6">
+                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs text-center shadow-2xl">
+                                <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i className="fas fa-trash-alt text-2xl"></i>
+                                </div>
+                                <h3 className="text-xl font-black text-slate-800">¿Borrar registro?</h3>
+                                <p className="text-slate-400 text-xs mb-8 mt-2 leading-relaxed">Esta acción es permanente y los datos se borrarán de la base de datos en la nube.</p>
                                 <div className="space-y-3">
-                                    <button onClick={async () => { await db.collection('maestros').doc(idMaestroAEliminar).delete(); setIdMaestroAEliminar(null); }} className="w-full py-4 bg-rose-500 text-white font-bold rounded-2xl">Sí, eliminar</button>
-                                    <button onClick={() => setIdMaestroAEliminar(null)} className="w-full py-2 text-slate-300 font-bold uppercase text-[10px]">Cancelar</button>
+                                    <button onClick={async () => { await db.collection('maestros').doc(idMaestroAEliminar).delete(); setIdMaestroAEliminar(null); }} className="w-full py-4 bg-rose-500 text-white font-bold rounded-2xl shadow-lg shadow-rose-100 active:scale-95 transition-all">Sí, eliminar ahora</button>
+                                    <button onClick={() => setIdMaestroAEliminar(null)} className="w-full py-2 text-slate-300 font-bold uppercase text-[10px] tracking-widest">Mantener registro</button>
                                 </div>
                             </div>
                         </div>
