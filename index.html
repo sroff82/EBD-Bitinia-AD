@@ -51,6 +51,20 @@
             LOGISTICA: "4444"
         };
 
+        const CAMPOS = [
+            "La Isla", 
+            "Las Delicias", 
+            "El Amatal", 
+            "El Manguito", 
+            "Buenos Aires", 
+            "Corozal Número 1", 
+            "El Porvenir", 
+            "El Coulote", 
+            "Corozal Número 2", 
+            "Vaya encantado", 
+            "La Playa"
+        ];
+
         function App() {
             const [usuario, setUsuario] = useState(null);
             const [maestros, setMaestros] = useState([]);
@@ -62,14 +76,23 @@
             const [maestroEnEdicion, setMaestroEnEdicion] = useState(null);
             const [idMaestroAEliminar, setIdMaestroAEliminar] = useState(null);
             
-            const [rolSeleccionado, setRolSeleccionado] = useState('');
-            const [claveIngresada, setClaveIngresada] = useState('');
-            const [errorLogin, setErrorLogin] = useState('');
+            // Estados para el Login modificado
+            const [rolLogin, setRolLogin] = useState('');
+            const [claveLogin, setClaveLogin] = useState('');
+            const [nombreLogin, setNombreLogin] = useState('');
+            const [campoLogin, setCampoLogin] = useState('');
+            const [mensajeLogin, setMensajeLogin] = useState({ texto: '', tipo: '' });
 
             // Recuperar sesión
             useEffect(() => {
-                const sesionGuardada = localStorage.getItem('rol_dominical');
-                if (sesionGuardada) setUsuario(sesionGuardada);
+                const sesionGuardada = localStorage.getItem('usuario_dominical_v2');
+                if (sesionGuardada) {
+                    try {
+                        setUsuario(JSON.parse(sesionGuardada));
+                    } catch (e) {
+                        localStorage.removeItem('usuario_dominical_v2');
+                    }
+                }
             }, []);
 
             // Escuchar cambios en Firestore
@@ -90,11 +113,13 @@
                 const TEMPLATE_ID = "template_516xc7k";
 
                 if (SERVICE_ID && TEMPLATE_ID) {
+                    const rolYCampo = datos.campo ? `${datos.clase || datos.rol} en ${datos.campo}` : (datos.clase || datos.rol);
+                    
                     emailjs.send(SERVICE_ID, TEMPLATE_ID, {
                         to_name: "Director",
-                        from_name: datos.registradoPor || "Usuario",
+                        from_name: datos.registradoPor || datos.nombre || "Sistema",
                         new_member: datos.nombre,
-                        role: datos.clase
+                        role: rolYCampo
                     }).then(() => {
                         console.log("Notificación enviada con éxito");
                     }).catch((err) => {
@@ -103,22 +128,74 @@
                 }
             };
 
-            const manejarLogin = (e) => {
+            const manejarLogin = async (e) => {
                 e.preventDefault();
-                setErrorLogin('');
-                if (claveIngresada === CLAVES[rolSeleccionado]) {
-                    setUsuario(rolSeleccionado);
-                    localStorage.setItem('rol_dominical', rolSeleccionado);
-                    setClaveIngresada('');
-                } else {
-                    setErrorLogin('Clave incorrecta.');
+                setMensajeLogin({ texto: '', tipo: '' });
+
+                if (claveLogin !== CLAVES[rolLogin]) {
+                    setMensajeLogin({ texto: 'Clave incorrecta.', tipo: 'error' });
+                    return;
+                }
+
+                if (rolLogin === 'ADMIN') {
+                    const adminUser = { rol: 'ADMIN', nombre: 'Director', estado: 'Activo' };
+                    setUsuario(adminUser);
+                    localStorage.setItem('usuario_dominical_v2', JSON.stringify(adminUser));
+                    return;
+                }
+
+                // Lógica de registro/espera para Maestros, Auxiliares y Logística
+                try {
+                    const snapshot = await db.collection('maestros')
+                        .where('nombre', '==', nombreLogin)
+                        .where('campo', '==', campoLogin)
+                        .where('rol', '==', rolLogin)
+                        .get();
+
+                    if (snapshot.empty) {
+                        // Nuevo registro, se va a estado Pendiente
+                        const nuevoUsuario = {
+                            nombre: nombreLogin,
+                            campo: campoLogin,
+                            rol: rolLogin,
+                            clase: rolLogin, // Para compatibilidad con las listas
+                            estado: 'Pendiente',
+                            createdAt: Date.now(),
+                            registradoPor: nombreLogin
+                        };
+                        await db.collection('maestros').add(nuevoUsuario);
+                        enviarNotificacionCorreo(nuevoUsuario);
+                        
+                        setMensajeLogin({ texto: 'Registro exitoso. Esperando aprobación del Administrador.', tipo: 'info' });
+                        setClaveLogin(''); // Borramos la clave por seguridad
+                    } else {
+                        // El usuario ya existe, comprobamos si ya está aprobado
+                        const userData = snapshot.docs[0].data();
+                        if (userData.estado === 'Activo') {
+                            const userObj = { id: snapshot.docs[0].id, ...userData };
+                            setUsuario(userObj);
+                            localStorage.setItem('usuario_dominical_v2', JSON.stringify(userObj));
+                        } else {
+                            setMensajeLogin({ texto: 'Tu acceso aún está esperando la aprobación del Administrador.', tipo: 'error' });
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error en login:", error);
+                    setMensajeLogin({ texto: 'Error de conexión. Intente nuevamente.', tipo: 'error' });
                 }
             };
 
             const cerrarSesion = () => {
                 setUsuario(null);
-                localStorage.removeItem('rol_dominical');
+                localStorage.removeItem('usuario_dominical_v2');
                 setTabActiva('inicio');
+                
+                // Limpiar formulario de login
+                setRolLogin('');
+                setClaveLogin('');
+                setNombreLogin('');
+                setCampoLogin('');
+                setMensajeLogin({ texto: '', tipo: '' });
             };
 
             const guardarMaestro = async (datosMaestro) => {
@@ -126,18 +203,18 @@
                     if (maestroEnEdicion) {
                         await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
                     } else {
+                        const esAdminLocal = usuario?.rol === 'ADMIN';
                         const nuevoRegistro = { 
                             ...datosMaestro, 
-                            estado: usuario === 'ADMIN' ? 'Activo' : 'Pendiente',
+                            rol: datosMaestro.clase,
+                            estado: esAdminLocal ? 'Activo' : 'Pendiente',
                             createdAt: Date.now(),
-                            registradoPor: usuario
+                            registradoPor: usuario?.nombre || 'Desconocido'
                         };
                         await db.collection('maestros').add(nuevoRegistro);
                         
-                        if (usuario !== 'ADMIN') {
+                        if (!esAdminLocal) {
                             enviarNotificacionCorreo(nuevoRegistro);
-                            // Usamos un modal o un simple mensaje en lugar de alert si fuera posible, 
-                            // pero mantenemos la lógica funcional.
                         }
                     }
                     setModalFormularioAbierto(false);
@@ -151,7 +228,7 @@
                 await db.collection('maestros').doc(id).update({ estado: 'Activo' });
             };
 
-            const esAdmin = usuario === 'ADMIN';
+            const esAdmin = usuario?.rol === 'ADMIN';
             
             const maestrosVisibles = maestros.filter(m => {
                 const coincideBusqueda = m.nombre.toLowerCase().includes(busqueda.toLowerCase());
@@ -164,21 +241,21 @@
             if (!usuario) {
                 return (
                     <div className="flex items-center justify-center h-full bg-indigo-600 p-6">
-                        <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl">
-                            <div className="text-center mb-8">
-                                <div className="bg-indigo-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-                                    <i className="fas fa-church text-3xl"></i>
+                        <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl overflow-y-auto max-h-[90vh]">
+                            <div className="text-center mb-6">
+                                <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
+                                    <i className="fas fa-church text-2xl"></i>
                                 </div>
-                                <h2 className="text-2xl font-bold text-slate-800">Control Escolar</h2>
-                                <p className="text-slate-500 text-sm">Ingresa tus credenciales</p>
+                                <h2 className="text-xl font-bold text-slate-800">Control Escolar</h2>
+                                <p className="text-slate-500 text-xs mt-1">Ingresa tus credenciales</p>
                             </div>
                             
                             <form onSubmit={manejarLogin} className="space-y-4">
                                 <select 
                                     required
                                     className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium appearance-none"
-                                    value={rolSeleccionado}
-                                    onChange={(e) => setRolSeleccionado(e.target.value)}
+                                    value={rolLogin}
+                                    onChange={(e) => setRolLogin(e.target.value)}
                                 >
                                     <option value="">¿Quién eres?</option>
                                     <option value="ADMIN">Director (Admin)</option>
@@ -186,17 +263,46 @@
                                     <option value="AUXILIAR">Auxiliar</option>
                                     <option value="LOGISTICA">Logística</option>
                                 </select>
+
+                                {rolLogin !== 'ADMIN' && rolLogin !== '' && (
+                                    <>
+                                        <input 
+                                            type="text"
+                                            required
+                                            placeholder="Nombre Completo"
+                                            className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-center"
+                                            value={nombreLogin}
+                                            onChange={(e) => setNombreLogin(e.target.value)}
+                                        />
+                                        <select 
+                                            required
+                                            className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium appearance-none text-center"
+                                            value={campoLogin}
+                                            onChange={(e) => setCampoLogin(e.target.value)}
+                                        >
+                                            <option value="">Seleccione su campo...</option>
+                                            {CAMPOS.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </>
+                                )}
+
                                 <input 
                                     type="password"
                                     required
                                     placeholder="Clave numérica"
                                     className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-center text-xl tracking-[0.5em]"
-                                    value={claveIngresada}
-                                    onChange={(e) => setClaveIngresada(e.target.value)}
+                                    value={claveLogin}
+                                    onChange={(e) => setClaveLogin(e.target.value)}
                                 />
-                                {errorLogin && <p className="text-rose-500 text-xs text-center font-bold">{errorLogin}</p>}
+                                
+                                {mensajeLogin.texto && (
+                                    <p className={`text-xs text-center font-bold px-2 ${mensajeLogin.tipo === 'error' ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                        {mensajeLogin.texto}
+                                    </p>
+                                )}
+                                
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">
-                                    Entrar al Sistema
+                                    {rolLogin === 'ADMIN' ? 'Entrar al Sistema' : 'Ingresar / Registrarse'}
                                 </button>
                             </form>
                         </div>
@@ -210,7 +316,7 @@
                         <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Gestión Ministerial</p>
                             <h1 className="text-xl font-black text-slate-800">
-                                {usuario === 'ADMIN' ? 'Panel Director' : `Sesión: ${usuario.toLowerCase()}`}
+                                {esAdmin ? 'Panel Director' : `Hola, ${usuario.nombre.split(' ')[0]}`}
                             </h1>
                         </div>
                         <button onClick={cerrarSesion} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-400 flex items-center justify-center active:bg-rose-50 active:text-rose-500 transition-colors">
@@ -231,7 +337,7 @@
                                                 <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center border border-amber-100">
                                                     <div>
                                                         <p className="font-bold text-slate-700 text-sm">{p.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{p.clase}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{p.clase} • {p.campo}</p>
                                                     </div>
                                                     <div className="flex space-x-2">
                                                         <button onClick={() => aprobarMaestro(p.id)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 shadow-md"><i className="fas fa-check"></i></button>
@@ -273,7 +379,7 @@
                                                     </div>
                                                     <div>
                                                         <p className="font-bold text-sm text-slate-700">{m.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400">{m.clase}</p>
+                                                        <p className="text-[10px] text-slate-400">{m.clase} {m.campo ? `• ${m.campo}` : ''}</p>
                                                     </div>
                                                 </div>
                                                 {m.telefono && (
@@ -318,6 +424,7 @@
                                                         {m.clase}
                                                     </span>
                                                     <h3 className="font-bold text-slate-800 text-base">{m.nombre}</h3>
+                                                    <p className="text-slate-400 text-[10px] mt-1 font-medium"><i className="fas fa-map-marker-alt mr-1"></i> {m.campo || 'Sin campo'}</p>
                                                     {m.telefono && <p className="text-slate-400 text-xs mt-1"><i className="fab fa-whatsapp mr-1"></i> {m.telefono}</p>}
                                                 </div>
                                                 {m.telefono && (
@@ -380,13 +487,20 @@
                                         <input type="text" name="nombre" placeholder="Ej. Juan Pérez" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
                                     </div>
                                     <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Campo</label>
+                                        <select name="campo" defaultValue={maestroEnEdicion?.campo || ''} required className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
+                                            <option value="">Seleccione un campo...</option>
+                                            {CAMPOS.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">WhatsApp (Opcional)</label>
                                         <input type="tel" name="telefono" placeholder="Ej. 12345678" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Clase / Ministerio</label>
                                         <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
-                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'Logística', 'Dirección'].map(c => <option key={c} value={c}>{c}</option>)}
+                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'MAESTRO', 'AUXILIAR', 'LOGISTICA'].map(c => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
                                     <div className="pt-4 flex flex-col space-y-3">
