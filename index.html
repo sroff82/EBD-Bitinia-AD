@@ -13,24 +13,22 @@ import {
   setDoc, 
   collection, 
   onSnapshot, 
-  updateDoc,
-  query
+  updateDoc 
 } from 'firebase/firestore';
 import { 
   ShieldCheck, 
   Users, 
   LogOut, 
   CheckCircle2, 
-  User, 
-  Mail,
   Clock,
   ChevronRight,
   Settings,
-  Loader2
+  Loader2,
+  BellRing
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN FIREBASE ---
-const firebaseConfig = JSON.parse(__firebase_config || '{}');
+// --- CONFIGURACIÓN DE FIREBASE ---
+const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -43,13 +41,13 @@ export default function App() {
   const [view, setView] = useState('login'); // login, pending, dashboard, admin
   const [loading, setLoading] = useState(true);
   
-  // Campos de formulario
+  // Estado para el formulario de registro
   const [nombre, setNombre] = useState('');
   const [rolSeleccionado, setRolSeleccionado] = useState('maestro');
 
-  // 1. AUTENTICACIÓN
+  // 1. Manejo de Autenticación
   useEffect(() => {
-    const login = async () => {
+    const performAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
@@ -57,82 +55,101 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Error de autenticación:", err);
+        console.error("Auth Error:", err);
       }
     };
-    login();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false);
+    performAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        setLoading(false);
+        setView('login');
+      }
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. CARGAR PERFIL DE USUARIO
+  // 2. Observador de Datos de Usuario
   useEffect(() => {
     if (!user) return;
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
-    const unsubscribe = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
+    
+    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
         setUserData(data);
-        if (data.role === 'admin') setView('admin');
-        else if (data.status === 'approved') setView('dashboard');
-        else setView('pending');
+        
+        // Lógica de redirección basada en rol y estado
+        if (data.role === 'admin') {
+          setView('admin');
+        } else if (data.status === 'approved') {
+          setView('dashboard');
+        } else {
+          setView('pending');
+        }
       } else {
         setView('login');
       }
       setLoading(false);
     }, (error) => {
-      console.error("Error cargando perfil:", error);
+      console.error("Error al obtener perfil:", error);
       setLoading(false);
     });
+
     return () => unsubscribe();
   }, [user]);
 
-  // 3. CARGAR LISTA DE USUARIOS (SOLO PARA ADMIN)
+  // 3. Panel de Administración (Observar todos los usuarios)
   useEffect(() => {
     if (userData?.role !== 'admin' || !user) return;
-    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-    const unsubscribe = onSnapshot(colRef, (snap) => {
-      setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+    const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'userRegistry');
+    const unsubscribe = onSnapshot(usersCol, (snapshot) => {
+      const usersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAllUsers(usersList);
     }, (error) => {
-      console.error("Error cargando usuarios:", error);
+      console.error("Error al cargar lista de usuarios:", error);
     });
+
     return () => unsubscribe();
   }, [userData, user]);
 
-  // FUNCIONES DE ACCIÓN
-  const registrarse = async () => {
-    if (!nombre.trim()) return;
-    const nuevoUsuario = {
+  // FUNCIONES DE NEGOCIO
+  const handleRegister = async () => {
+    if (!nombre.trim() || !user) return;
+
+    const profileData = {
       uid: user.uid,
       name: nombre,
       role: rolSeleccionado,
       status: rolSeleccionado === 'admin' ? 'approved' : 'pending',
-      fecha: new Date().toISOString()
+      createdAt: new Date().toISOString()
     };
-    
+
     try {
-      // Guardar en privado y en público para el admin
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), nuevoUsuario);
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), nuevoUsuario);
+      // Guardar en la ruta privada del usuario
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data'), profileData);
+      // Guardar en la ruta pública para que el admin lo vea
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', user.uid), profileData);
     } catch (err) {
-      console.error("Error al registrar:", err);
+      console.error("Error al registrar perfil:", err);
     }
   };
 
-  const aprobarUsuario = async (targetUid) => {
+  const approveUser = async (targetUid) => {
     try {
-      const refPublica = doc(db, 'artifacts', appId, 'public', 'data', 'users', targetUid);
-      const refPrivada = doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data');
-      await updateDoc(refPublica, { status: 'approved' });
-      await updateDoc(refPrivada, { status: 'approved' });
+      const publicDoc = doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', targetUid);
+      const privateDoc = doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data');
+      
+      await updateDoc(publicDoc, { status: 'approved' });
+      await updateDoc(privateDoc, { status: 'approved' });
     } catch (err) {
-      console.error("Error al aprobar:", err);
+      console.error("Error al aprobar usuario:", err);
     }
   };
 
+  // ESTADOS DE CARGA
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -144,7 +161,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      {/* HEADER */}
+      {/* HEADER PRINCIPAL */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-6 h-6 text-blue-600" />
@@ -153,7 +170,7 @@ export default function App() {
         {user && userData && (
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold leading-none">{userData.name}</p>
+              <p className="text-sm font-bold leading-none text-slate-700">{userData.name}</p>
               <p className="text-[10px] text-slate-400 uppercase tracking-tighter">{userData.role}</p>
             </div>
             <button onClick={() => signOut(auth)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
@@ -165,95 +182,92 @@ export default function App() {
 
       <main className="max-w-4xl mx-auto p-6">
         
-        {/* VISTA: REGISTRO / LOGIN */}
+        {/* VISTA: REGISTRO */}
         {view === 'login' && (
           <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-100 mt-10">
-            <h2 className="text-2xl font-bold mb-6 text-slate-800">Registro de Acceso</h2>
+            <h2 className="text-2xl font-bold mb-6 text-slate-800">Acceso al Sistema</h2>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tu Nombre</label>
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Nombre Completo</label>
                 <input 
                   type="text" 
                   value={nombre}
                   onChange={(e) => setNombre(e.target.value)}
                   className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  placeholder="Escribe tu nombre..."
+                  placeholder="Tu nombre aquí..."
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Rol en la Escuela</label>
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Tu Función</label>
                 <select 
                   value={rolSeleccionado}
                   onChange={(e) => setRolSeleccionado(e.target.value)}
                   className="w-full border border-slate-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all bg-white"
                 >
                   <option value="maestro">Maestro / Guía</option>
-                  <option value="auxiliar">Auxiliar</option>
-                  <option value="admin">Director (Admin)</option>
+                  <option value="auxiliar">Auxiliar de Clase</option>
+                  <option value="admin">Director / Administrador</option>
                 </select>
               </div>
               <button 
-                onClick={registrarse}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-200 active:scale-[0.98]"
+                onClick={handleRegister}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-100 active:scale-[0.98]"
               >
-                Solicitar Ingreso
+                Registrar Solicitud
               </button>
             </div>
           </div>
         )}
 
-        {/* VISTA: ESPERA / NOTIFICACIÓN */}
+        {/* VISTA: ESPERA (DISEÑO BASADO EN TU IMAGEN) */}
         {view === 'pending' && (
           <div className="max-w-xl mx-auto mt-10">
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-              <div className="bg-amber-500 p-4 text-white flex items-center gap-2 font-bold shadow-inner">
-                <Mail className="w-5 h-5" /> Notificación para el Director
-              </div>
-              <div className="p-8">
-                <p className="text-slate-800 mb-4 font-semibold text-lg">Hola Director,</p>
-                <p className="text-slate-600 mb-6">Se ha registrado un nuevo miembro en el sistema y requiere su aprobación:</p>
+              <div className="bg-[#fdf8f4] border-b border-orange-100 p-6">
+                <h3 className="text-slate-800 text-xl font-medium mb-4">Hola Director,</h3>
+                <p className="text-slate-600 mb-6 leading-relaxed">
+                  Se ha registrado un nuevo miembro en el sistema y requiere su aprobación:
+                </p>
                 
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4 mb-8">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    <p className="text-sm text-slate-700"><strong>Nombre:</strong> {userData?.name}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    <p className="text-sm text-slate-700"><strong>Clase/Rol:</strong> {userData?.role}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                    <p className="text-sm text-slate-700"><strong>Estado:</strong> <span className="text-amber-600 font-bold underline decoration-amber-300">Pendiente de Aprobación</span></p>
-                  </div>
-                </div>
+                <ul className="space-y-3 mb-6">
+                  <li className="flex items-baseline gap-2">
+                    <span className="font-bold text-slate-800">• Nombre:</span>
+                    <span className="text-slate-600">{userData?.name}</span>
+                  </li>
+                  <li className="flex items-baseline gap-2">
+                    <span className="font-bold text-slate-800">• Clase/Rol:</span>
+                    <span className="text-slate-600 font-medium capitalize">{userData?.role}</span>
+                  </li>
+                  <li className="flex items-baseline gap-2">
+                    <span className="font-bold text-slate-800">• Registrado por:</span>
+                    <span className="text-slate-600 italic">Auto-registro</span>
+                  </li>
+                </ul>
 
-                <div className="flex flex-col items-center py-6 border-t border-slate-100">
-                  <div className="relative mb-4">
-                    <Clock className="w-12 h-12 text-amber-400 animate-pulse" />
-                    <div className="absolute inset-0 bg-amber-400/20 blur-xl rounded-full"></div>
-                  </div>
-                  <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] text-center leading-relaxed">
-                    Por favor espera a que el director <br/> autorice tu acceso desde su panel.
-                  </p>
-                </div>
+                <p className="text-slate-600 font-medium">
+                  Por favor, ingrese al Panel de Control para activar este registro.
+                </p>
+              </div>
+              <div className="p-6 bg-slate-50 flex items-center justify-center gap-3">
+                <Clock className="w-5 h-5 text-amber-500 animate-pulse" />
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Esperando aprobación del director...
+                </span>
               </div>
             </div>
           </div>
         )}
 
-        {/* VISTA: ADMIN */}
+        {/* VISTA: ADMINISTRADOR */}
         {view === 'admin' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-3">
-                <div className="bg-slate-800 p-2 rounded-lg">
-                   <Settings className="w-6 h-6 text-white" />
-                </div>
-                <h1 className="text-2xl font-bold text-slate-800">Panel de Control</h1>
-              </div>
-              <div className="bg-blue-50 text-blue-700 px-4 py-1 rounded-full text-xs font-bold border border-blue-100">
-                Director
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <Settings className="w-6 h-6 text-slate-400" />
+                Panel de Gestión
+              </h1>
+              <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md">
+                Admin Mode
               </div>
             </div>
             
@@ -261,49 +275,41 @@ export default function App() {
               <table className="w-full text-left">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    <th className="px-6 py-4">Usuario</th>
-                    <th className="px-6 py-4">Rol</th>
-                    <th className="px-6 py-4">Estado</th>
-                    <th className="px-6 py-4 text-right">Acción</th>
+                    <th className="px-6 py-4">Usuario Solicitante</th>
+                    <th className="px-6 py-4">Rol Propuesto</th>
+                    <th className="px-6 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {allUsers.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="px-6 py-10 text-center text-slate-400 text-sm italic">
-                        No hay solicitudes pendientes
+                      <td colSpan="3" className="px-6 py-12 text-center text-slate-400 italic">
+                        No hay usuarios registrados aún.
                       </td>
                     </tr>
                   ) : (
                     allUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={u.id} className="group hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <p className="font-bold text-slate-700">{u.name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{u.uid}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{u.id}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded">
+                          <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded capitalize">
                             {u.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${u.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {u.status === 'approved' ? 'ACTIVO' : 'PENDIENTE'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
                           {u.status === 'pending' ? (
                             <button 
-                              onClick={() => aprobarUsuario(u.id)}
-                              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-md shadow-blue-100"
+                              onClick={() => approveUser(u.id)}
+                              className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-md shadow-green-100 active:scale-95"
                             >
-                              Aprobar
+                              Dar Acceso
                             </button>
                           ) : (
-                            <div className="flex justify-end">
-                              <div className="bg-green-50 p-1 rounded-full">
-                                <CheckCircle2 className="w-5 h-5 text-green-500" />
-                              </div>
+                            <div className="inline-flex items-center gap-1 text-green-500 font-bold text-xs">
+                              <CheckCircle2 className="w-4 h-4" /> Activo
                             </div>
                           )}
                         </td>
@@ -318,34 +324,31 @@ export default function App() {
 
         {/* VISTA: DASHBOARD MAESTRO */}
         {view === 'dashboard' && (
-          <div className="text-center py-16 animate-in fade-in duration-700">
-            <div className="relative inline-block mb-8">
-              <div className="bg-blue-600 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-blue-200">
-                <CheckCircle2 className="w-12 h-12 text-white" />
-              </div>
-              <div className="absolute -bottom-2 -right-2 bg-green-500 w-8 h-8 rounded-full border-4 border-slate-50 flex items-center justify-center">
-                 <ShieldCheck className="w-4 h-4 text-white" />
-              </div>
+          <div className="text-center py-16 animate-in fade-in duration-1000">
+            <div className="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-blue-200 mb-8">
+              <CheckCircle2 className="w-10 h-10 text-white" />
             </div>
             
             <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">¡Bienvenido(a)!</h1>
-            <p className="text-slate-500 mt-3 text-lg">Tu cuenta ha sido autorizada correctamente, <strong>{userData?.name}</strong>.</p>
+            <p className="text-slate-500 mt-4 text-lg">
+              Tu acceso ha sido autorizado, <span className="text-blue-600 font-bold">{userData?.name}</span>.
+            </p>
             
             <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl hover:shadow-slate-200 transition-all text-left group">
-                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-500 transition-colors">
+              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl transition-all text-left group">
+                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                   <Users className="w-6 h-6 text-blue-600 group-hover:text-white" />
                 </div>
                 <p className="font-bold text-slate-800 text-lg">Mi Clase</p>
-                <p className="text-sm text-slate-400 mt-1">Gestionar alumnos y grupos asignados.</p>
+                <p className="text-sm text-slate-400 mt-1">Ver lista de alumnos y registrar asistencia.</p>
               </button>
               
-              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl hover:shadow-slate-200 transition-all text-left group">
-                <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-green-500 transition-colors">
-                  <ChevronRight className="w-6 h-6 text-green-600 group-hover:text-white" />
+              <button className="p-8 bg-white border border-slate-200 rounded-3xl hover:border-blue-500 hover:shadow-xl transition-all text-left group">
+                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-slate-800 group-hover:text-white transition-colors">
+                  <BellRing className="w-6 h-6 text-slate-600 group-hover:text-white" />
                 </div>
-                <p className="font-bold text-slate-800 text-lg">Asistencia</p>
-                <p className="text-sm text-slate-400 mt-1">Registrar la asistencia de hoy rápidamente.</p>
+                <p className="font-bold text-slate-800 text-lg">Anuncios</p>
+                <p className="text-sm text-slate-400 mt-1">Notificaciones y avisos de la dirección.</p>
               </button>
             </div>
           </div>
