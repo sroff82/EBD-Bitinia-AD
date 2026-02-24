@@ -27,7 +27,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Inicializar EmailJS (Necesitarás crear una cuenta gratuita en emailjs.com)
+        // ✅ Tu Public Key ya está configurada aquí
         emailjs.init("7l-eHxFpu6r0bbHUV"); 
 
         const firebaseConfig = {
@@ -83,16 +83,23 @@
             }, []);
 
             const enviarNotificacionCorreo = (datos) => {
-                // Esto envía un correo al director
-                // Nota: Requiere configurar un "Service ID" y "Template ID" en EmailJS
-                console.log("Enviando notificación de nuevo registro para aprobación...");
-                /* emailjs.send("service_id", "template_id", {
-                    to_name: "Director Escuela Dominical",
-                    from_name: datos.registradoPor,
-                    new_member: datos.nombre,
-                    role: datos.clase
-                });
-                */
+                // ⚠️ RECUERDA: Cambia estos dos por los que aparecen en tu panel de EmailJS
+                const SERVICE_ID = "service_475d2ya"; 
+                const TEMPLATE_ID = "template_516xc7k";
+
+                // Solo intenta enviar si ya cambiaste los IDs de arriba
+                if (SERVICE_ID.includes("service_") && !SERVICE_ID.includes("xxxx")) {
+                    emailjs.send(SERVICE_ID, TEMPLATE_ID, {
+                        to_name: "Director",
+                        from_name: datos.registradoPor,
+                        new_member: datos.nombre,
+                        role: datos.clase
+                    }).then(() => {
+                        console.log("Notificación enviada al Director");
+                    }).catch((err) => {
+                        console.error("Error EmailJS:", err);
+                    });
+                }
             };
 
             const manejarLogin = (e) => {
@@ -116,7 +123,6 @@
                     if (maestroEnEdicion) {
                         await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
                     } else {
-                        // Si no es ADMIN, el registro entra como PENDIENTE
                         const nuevoRegistro = { 
                             ...datosMaestro, 
                             estado: usuario === 'ADMIN' ? 'Activo' : 'Pendiente',
@@ -127,7 +133,7 @@
                         
                         if (usuario !== 'ADMIN') {
                             enviarNotificacionCorreo(nuevoRegistro);
-                            alert("Registro enviado. El Director debe aprobarlo antes de que aparezca en la lista.");
+                            alert("Registro enviado. El Director recibirá un correo para aprobarlo.");
                         }
                     }
                     setModalFormularioAbierto(false);
@@ -143,11 +149,10 @@
 
             const esAdmin = usuario === 'ADMIN';
             
-            // Filtrar lista según rol
             const maestrosVisibles = maestros.filter(m => {
                 const coincideBusqueda = m.nombre.toLowerCase().includes(busqueda.toLowerCase());
-                if (esAdmin) return coincideBusqueda; // Admin ve todo
-                return coincideBusqueda && m.estado === 'Activo'; // Otros solo ven aprobados
+                if (esAdmin) return coincideBusqueda; 
+                return coincideBusqueda && m.estado === 'Activo'; 
             });
 
             const pendientes = maestros.filter(m => m.estado === 'Pendiente');
@@ -158,10 +163,10 @@
                         <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl">
                             <div className="text-center mb-8">
                                 <div className="bg-indigo-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-                                    <i className="fas fa-lock text-3xl"></i>
+                                    <i className="fas fa-church text-3xl"></i>
                                 </div>
-                                <h2 className="text-2xl font-bold text-slate-800">Acceso Seguro</h2>
-                                <p className="text-slate-500 text-sm italic">Identifícate para continuar</p>
+                                <h2 className="text-2xl font-bold text-slate-800">Control Escolar</h2>
+                                <p className="text-slate-500 text-sm">Ingresa tus credenciales</p>
                             </div>
                             
                             <form onSubmit={manejarLogin} className="space-y-4">
@@ -171,8 +176,8 @@
                                     value={rolSeleccionado}
                                     onChange={(e) => setRolSeleccionado(e.target.value)}
                                 >
-                                    <option value="">Selecciona tu rol</option>
-                                    <option value="ADMIN">Director / Administrador</option>
+                                    <option value="">¿Quién eres?</option>
+                                    <option value="ADMIN">Director (Admin)</option>
                                     <option value="MAESTRO">Maestro</option>
                                     <option value="AUXILIAR">Auxiliar</option>
                                     <option value="LOGISTICA">Logística</option>
@@ -180,14 +185,14 @@
                                 <input 
                                     type="password"
                                     required
-                                    placeholder="Clave de acceso"
+                                    placeholder="Clave numérica"
                                     className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-center text-xl tracking-[0.5em]"
                                     value={claveIngresada}
                                     onChange={(e) => setClaveIngresada(e.target.value)}
                                 />
                                 {errorLogin && <p className="text-rose-500 text-xs text-center font-bold">{errorLogin}</p>}
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">
-                                    Iniciar Sesión
+                                    Entrar al Sistema
                                 </button>
                             </form>
                         </div>
@@ -199,16 +204,13 @@
                 <div className="flex flex-col h-screen">
                     <header className="bg-white p-5 flex justify-between items-center border-b border-slate-100">
                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Escuela Dominical</p>
-                            <h1 className="text-xl font-black text-slate-800 flex items-center">
-                                Hola, {usuario === 'ADMIN' ? 'Director' : usuario.toLowerCase()}
-                                {esAdmin && pendientes.length > 0 && (
-                                    <span className="ml-2 w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
-                                )}
+                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Gestión Ministerial</p>
+                            <h1 className="text-xl font-black text-slate-800">
+                                {usuario === 'ADMIN' ? 'Panel Director' : `Sesión: ${usuario.toLowerCase()}`}
                             </h1>
                         </div>
                         <button onClick={cerrarSesion} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-400 flex items-center justify-center">
-                            <i className="fas fa-power-off"></i>
+                            <i className="fas fa-sign-out-alt"></i>
                         </button>
                     </header>
 
@@ -216,20 +218,20 @@
                         {tabActiva === 'inicio' && (
                             <div className="space-y-6">
                                 {esAdmin && pendientes.length > 0 && (
-                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-[32px]">
+                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-[32px] animate-pulse">
                                         <h3 className="text-amber-800 font-bold text-sm mb-3 flex items-center">
-                                            <i className="fas fa-bell mr-2"></i> Solicitudes Pendientes ({pendientes.length})
+                                            <i className="fas fa-exclamation-circle mr-2"></i> Por Aprobar ({pendientes.length})
                                         </h3>
                                         <div className="space-y-3">
                                             {pendientes.map(p => (
                                                 <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center">
                                                     <div>
                                                         <p className="font-bold text-slate-700 text-sm">{p.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400 uppercase font-bold">{p.clase} • Por: {p.registradoPor}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{p.clase}</p>
                                                     </div>
                                                     <div className="flex space-x-2">
                                                         <button onClick={() => aprobarMaestro(p.id)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg text-xs"><i className="fas fa-check"></i></button>
-                                                        <button onClick={() => setIdMaestroAEliminar(p.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-lg text-xs"><i className="fas fa-times"></i></button>
+                                                        <button onClick={() => setIdMaestroAEliminar(p.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-lg text-xs"><i className="fas fa-trash"></i></button>
                                                     </div>
                                                 </div>
                                             ))}
@@ -239,7 +241,7 @@
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-indigo-600 p-5 rounded-[32px] text-white shadow-xl shadow-indigo-100">
-                                        <p className="text-[10px] font-bold uppercase opacity-60">Total Activos</p>
+                                        <p className="text-[10px] font-bold uppercase opacity-60">Activos</p>
                                         <p className="text-4xl font-black">{maestros.filter(m => m.estado === 'Activo').length}</p>
                                     </div>
                                     <button 
@@ -249,28 +251,31 @@
                                         <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
                                             <i className="fas fa-plus"></i>
                                         </div>
-                                        <p className="font-bold text-slate-700 leading-tight">Registrar<br/>Miembro</p>
+                                        <p className="font-bold text-slate-700 leading-tight">Nueva<br/>Inscripción</p>
                                     </button>
                                 </div>
 
                                 <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100">
-                                    <h3 className="font-bold text-slate-800 mb-4">Directorio Rápido</h3>
-                                    <div className="space-y-3">
-                                        {maestros.filter(m => m.estado === 'Activo').slice(0, 3).map(m => (
-                                            <div key={m.id} className="flex items-center justify-between p-2">
+                                    <h3 className="font-bold text-slate-800 mb-4">Contactos Recientes</h3>
+                                    <div className="space-y-4">
+                                        {maestros.filter(m => m.estado === 'Activo').slice(0, 4).map(m => (
+                                            <div key={m.id} className="flex items-center justify-between">
                                                 <div className="flex items-center space-x-3">
-                                                    <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 font-bold uppercase">
+                                                    <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
                                                         {m.nombre.charAt(0)}
                                                     </div>
                                                     <div>
                                                         <p className="font-bold text-sm text-slate-700">{m.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400 font-medium">{m.clase}</p>
+                                                        <p className="text-[10px] text-slate-400">{m.clase}</p>
                                                     </div>
                                                 </div>
-                                                <a href={`tel:${m.telefono}`} className="text-indigo-500"><i className="fas fa-phone-alt"></i></a>
+                                                {m.telefono && (
+                                                    <a href={`tel:${m.telefono}`} className="text-indigo-500 w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                                                        <i className="fas fa-phone-alt text-xs"></i>
+                                                    </a>
+                                                )}
                                             </div>
                                         ))}
-                                        <button onClick={() => setTabActiva('lista')} className="w-full py-3 text-indigo-600 text-xs font-bold uppercase tracking-widest mt-2 bg-indigo-50 rounded-xl">Ver Directorio Completo</button>
                                     </div>
                                 </div>
                             </div>
@@ -291,21 +296,16 @@
 
                                 {maestrosVisibles.map((m) => (
                                     <div key={m.id} className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100 relative overflow-hidden">
-                                        {m.estado === 'Pendiente' && (
-                                            <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] font-black px-3 py-1 rounded-bl-xl uppercase">Pendiente</div>
-                                        )}
                                         <div className="flex justify-between items-start mb-4">
                                             <div>
-                                                <p className="text-[10px] font-black text-indigo-400 uppercase mb-1 tracking-tighter">{m.clase}</p>
+                                                <p className="text-[10px] font-black text-indigo-400 uppercase mb-1">{m.clase}</p>
                                                 <h3 className="font-bold text-slate-800 text-lg">{m.nombre}</h3>
                                             </div>
-                                            <div className="flex space-x-2">
-                                                {m.telefono && (
-                                                    <a href={`tel:${m.telefono}`} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-                                                        <i className="fas fa-whatsapp"></i>
-                                                    </a>
-                                                )}
-                                            </div>
+                                            {m.telefono && (
+                                                <a href={`https://wa.me/${m.telefono.replace(/\D/g,'')}`} target="_blank" className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                                                    <i className="fab fa-whatsapp text-xl"></i>
+                                                </a>
+                                            )}
                                         </div>
                                         
                                         {esAdmin && (
@@ -322,37 +322,36 @@
 
                     <nav className="bg-white border-t border-slate-100 fixed bottom-0 w-full h-20 flex justify-around items-center px-10">
                         <button onClick={() => setTabActiva('inicio')} className={`flex flex-col items-center ${tabActiva === 'inicio' ? 'text-indigo-600' : 'text-slate-300'}`}>
-                            <i className="fas fa-grip-large text-xl"></i>
-                            <span className="text-[9px] font-black uppercase mt-1">Panel</span>
+                            <i className="fas fa-home text-xl"></i>
+                            <span className="text-[9px] font-black uppercase mt-1">Inicio</span>
                         </button>
                         <button onClick={() => setTabActiva('lista')} className={`flex flex-col items-center ${tabActiva === 'lista' ? 'text-indigo-600' : 'text-slate-300'}`}>
                             <div className="relative">
-                                <i className="fas fa-address-book text-xl"></i>
-                                {esAdmin && pendientes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>}
+                                <i className="fas fa-users text-xl"></i>
+                                {esAdmin && pendientes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
                             </div>
-                            <span className="text-[9px] font-black uppercase mt-1">Equipo</span>
+                            <span className="text-[9px] font-black uppercase mt-1">Directorio</span>
                         </button>
                     </nav>
 
-                    {/* MODALES IGUALES AL ANTERIOR PERO CON ESTILO MEJORADO */}
                     {modalFormularioAbierto && (
                         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center z-50">
                             <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-8 pb-12 shadow-2xl">
-                                <h2 className="text-2xl font-black text-slate-800 mb-6">{maestroEnEdicion ? 'Actualizar' : 'Registro Nuevo'}</h2>
+                                <h2 className="text-2xl font-black text-slate-800 mb-6">{maestroEnEdicion ? 'Editar Registro' : 'Inscribir Nuevo'}</h2>
                                 <form onSubmit={(e) => {
                                     e.preventDefault();
                                     const formData = new FormData(e.target);
                                     guardarMaestro(Object.fromEntries(formData.entries()));
                                 }} className="space-y-4">
-                                    <input type="text" name="nombre" placeholder="Nombre completo" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                                    <input type="tel" name="telefono" placeholder="WhatsApp / Teléfono" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none" />
+                                    <input type="text" name="nombre" placeholder="Nombre y Apellidos" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                                    <input type="tel" name="telefono" placeholder="Número de WhatsApp" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 rounded-2xl outline-none" />
                                     <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full p-4 bg-slate-50 rounded-2xl outline-none">
                                         {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'Logística', 'Dirección'].map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
-                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-100 mt-4 active:scale-95 transition-all">
-                                        {esAdmin ? 'Guardar Cambios' : 'Enviar para Aprobación'}
+                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl mt-4 active:scale-95 transition-all">
+                                        {esAdmin ? 'Guardar Cambios' : 'Enviar Solicitud'}
                                     </button>
-                                    <button type="button" onClick={() => setModalFormularioAbierto(false)} className="w-full py-2 text-slate-300 font-bold text-xs uppercase tracking-widest mt-2">Cerrar</button>
+                                    <button type="button" onClick={() => setModalFormularioAbierto(false)} className="w-full py-2 text-slate-300 font-bold text-xs uppercase tracking-widest mt-2">Cancelar</button>
                                 </form>
                             </div>
                         </div>
@@ -361,11 +360,10 @@
                     {idMaestroAEliminar && (
                         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-6">
                             <div className="bg-white rounded-[40px] p-8 w-full max-w-xs text-center">
-                                <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl"><i className="fas fa-trash"></i></div>
-                                <h3 className="text-xl font-bold">¿Eliminar?</h3>
-                                <p className="text-slate-400 text-sm mb-6 mt-2">Esta acción borrará el registro definitivamente.</p>
+                                <h3 className="text-xl font-bold">¿Borrar registro?</h3>
+                                <p className="text-slate-400 text-sm mb-6 mt-2">Esta acción eliminará los datos permanentemente de la nube.</p>
                                 <div className="space-y-3">
-                                    <button onClick={async () => { await db.collection('maestros').doc(idMaestroAEliminar).delete(); setIdMaestroAEliminar(null); }} className="w-full py-4 bg-rose-500 text-white font-bold rounded-2xl">Confirmar</button>
+                                    <button onClick={async () => { await db.collection('maestros').doc(idMaestroAEliminar).delete(); setIdMaestroAEliminar(null); }} className="w-full py-4 bg-rose-500 text-white font-bold rounded-2xl">Sí, eliminar</button>
                                     <button onClick={() => setIdMaestroAEliminar(null)} className="w-full py-2 text-slate-300 font-bold uppercase text-[10px]">Cancelar</button>
                                 </div>
                             </div>
