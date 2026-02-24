@@ -1,427 +1,405 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión Escuela Dominical - Control</title>
-    
-    <meta name="theme-color" content="#4f46e5">
-    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwMCIgZmlsbD0iIzRmNDZlNSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI1NiI+8J+SmDwvdGV4dD48L3N2Zz4=">
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged,
+  signOut 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  collection, 
+  onSnapshot, 
+  updateDoc,
+  query
+} from 'firebase/firestore';
+import { 
+  ShieldCheck, 
+  Clock, 
+  Users, 
+  LogOut, 
+  CheckCircle2, 
+  XCircle,
+  Lock,
+  UserPlus
+} from 'lucide-react';
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+// Firebase configuration using environment variables
+const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'school-access-control';
 
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('login'); // login, pending, dashboard, admin
 
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-</head>
-<body class="bg-slate-50 text-slate-800 antialiased h-screen overflow-hidden">
-    <div id="root" class="h-full"></div>
-
-    <script type="text/babel">
-        const { useState, useEffect } = React;
-
-        // Configuración de EmailJS
-        emailjs.init("7l-eHxFpu6r0bbHUV"); 
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBHzlxpJNejD9_dsx6atUtfVo15ORsfGzc",
-            authDomain: "escuela-dominical-bcc99.firebaseapp.com",
-            projectId: "escuela-dominical-bcc99",
-            storageBucket: "escuela-dominical-bcc99.firebasestorage.app",
-            messagingSenderId: "1039366920419",
-            appId: "1:1039366920419:web:09f7c09e2370d3718b8dd6",
-            measurementId: "G-0KCFGX6CMD"
-        };
-
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
+  // --- Auth Initialization ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
         }
-        const db = firebase.firestore();
+      } catch (err) {
+        console.error("Auth error:", err);
+      }
+    };
 
-        const CLAVES = {
-            ADMIN: "1234",
-            MAESTRO: "2222",
-            AUXILIAR: "3333",
-            LOGISTICA: "4444"
-        };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        setUserData(null);
+        setView('login');
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-        function App() {
-            const [usuario, setUsuario] = useState(null);
-            const [maestros, setMaestros] = useState([]);
-            const [cargando, setCargando] = useState(true);
-            const [tabActiva, setTabActiva] = useState('inicio');
-            const [busqueda, setBusqueda] = useState('');
-            
-            const [modalFormularioAbierto, setModalFormularioAbierto] = useState(false);
-            const [maestroEnEdicion, setMaestroEnEdicion] = useState(null);
-            const [idMaestroAEliminar, setIdMaestroAEliminar] = useState(null);
-            
-            const [rolSeleccionado, setRolSeleccionado] = useState('');
-            const [claveIngresada, setClaveIngresada] = useState('');
-            const [errorLogin, setErrorLogin] = useState('');
+  // --- User Data & Status Watcher ---
+  useEffect(() => {
+    if (!user) return;
 
-            // Recuperar sesión
-            useEffect(() => {
-                const sesionGuardada = localStorage.getItem('rol_dominical');
-                if (sesionGuardada) setUsuario(sesionGuardada);
-            }, []);
-
-            // Escuchar cambios en Firestore
-            useEffect(() => {
-                const unsubscribe = db.collection('maestros').onSnapshot((snapshot) => {
-                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    data.sort((a, b) => a.nombre.localeCompare(b.nombre));
-                    setMaestros(data);
-                    setCargando(false);
-                }, (error) => {
-                    console.error("Error Firestore:", error);
-                });
-                return () => unsubscribe();
-            }, []);
-
-            const enviarNotificacionCorreo = (datos) => {
-                const SERVICE_ID = "service_475d2ya"; 
-                const TEMPLATE_ID = "template_516xc7k";
-
-                if (SERVICE_ID && TEMPLATE_ID) {
-                    emailjs.send(SERVICE_ID, TEMPLATE_ID, {
-                        to_name: "Director",
-                        from_name: datos.registradoPor || "Usuario",
-                        new_member: datos.nombre,
-                        role: datos.clase
-                    }).then(() => {
-                        console.log("Notificación enviada con éxito");
-                    }).catch((err) => {
-                        console.error("Error EmailJS:", err);
-                    });
-                }
-            };
-
-            const manejarLogin = (e) => {
-                e.preventDefault();
-                setErrorLogin('');
-                if (claveIngresada === CLAVES[rolSeleccionado]) {
-                    setUsuario(rolSeleccionado);
-                    localStorage.setItem('rol_dominical', rolSeleccionado);
-                    setClaveIngresada('');
-                } else {
-                    setErrorLogin('Clave incorrecta.');
-                }
-            };
-
-            const cerrarSesion = () => {
-                setUsuario(null);
-                localStorage.removeItem('rol_dominical');
-                setTabActiva('inicio');
-            };
-
-            const guardarMaestro = async (datosMaestro) => {
-                try {
-                    if (maestroEnEdicion) {
-                        await db.collection('maestros').doc(maestroEnEdicion.id).update(datosMaestro);
-                    } else {
-                        const nuevoRegistro = { 
-                            ...datosMaestro, 
-                            estado: usuario === 'ADMIN' ? 'Activo' : 'Pendiente',
-                            createdAt: Date.now(),
-                            registradoPor: usuario
-                        };
-                        await db.collection('maestros').add(nuevoRegistro);
-                        
-                        if (usuario !== 'ADMIN') {
-                            enviarNotificacionCorreo(nuevoRegistro);
-                            // Usamos un modal o un simple mensaje en lugar de alert si fuera posible, 
-                            // pero mantenemos la lógica funcional.
-                        }
-                    }
-                    setModalFormularioAbierto(false);
-                    setMaestroEnEdicion(null);
-                } catch (error) {
-                    console.error("Error al guardar:", error);
-                }
-            };
-
-            const aprobarMaestro = async (id) => {
-                await db.collection('maestros').doc(id).update({ estado: 'Activo' });
-            };
-
-            const esAdmin = usuario === 'ADMIN';
-            
-            const maestrosVisibles = maestros.filter(m => {
-                const coincideBusqueda = m.nombre.toLowerCase().includes(busqueda.toLowerCase());
-                if (esAdmin) return coincideBusqueda; 
-                return coincideBusqueda && m.estado === 'Activo'; 
-            });
-
-            const pendientes = maestros.filter(m => m.estado === 'Pendiente');
-
-            if (!usuario) {
-                return (
-                    <div className="flex items-center justify-center h-full bg-indigo-600 p-6">
-                        <div className="bg-white rounded-[40px] p-8 w-full max-w-sm shadow-2xl">
-                            <div className="text-center mb-8">
-                                <div className="bg-indigo-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-                                    <i className="fas fa-church text-3xl"></i>
-                                </div>
-                                <h2 className="text-2xl font-bold text-slate-800">Control Escolar</h2>
-                                <p className="text-slate-500 text-sm">Ingresa tus credenciales</p>
-                            </div>
-                            
-                            <form onSubmit={manejarLogin} className="space-y-4">
-                                <select 
-                                    required
-                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium appearance-none"
-                                    value={rolSeleccionado}
-                                    onChange={(e) => setRolSeleccionado(e.target.value)}
-                                >
-                                    <option value="">¿Quién eres?</option>
-                                    <option value="ADMIN">Director (Admin)</option>
-                                    <option value="MAESTRO">Maestro</option>
-                                    <option value="AUXILIAR">Auxiliar</option>
-                                    <option value="LOGISTICA">Logística</option>
-                                </select>
-                                <input 
-                                    type="password"
-                                    required
-                                    placeholder="Clave numérica"
-                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-center text-xl tracking-[0.5em]"
-                                    value={claveIngresada}
-                                    onChange={(e) => setClaveIngresada(e.target.value)}
-                                />
-                                {errorLogin && <p className="text-rose-500 text-xs text-center font-bold">{errorLogin}</p>}
-                                <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">
-                                    Entrar al Sistema
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-white shadow-2xl">
-                    <header className="bg-white p-5 flex justify-between items-center border-b border-slate-100">
-                        <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Gestión Ministerial</p>
-                            <h1 className="text-xl font-black text-slate-800">
-                                {usuario === 'ADMIN' ? 'Panel Director' : `Sesión: ${usuario.toLowerCase()}`}
-                            </h1>
-                        </div>
-                        <button onClick={cerrarSesion} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-400 flex items-center justify-center active:bg-rose-50 active:text-rose-500 transition-colors">
-                            <i className="fas fa-sign-out-alt"></i>
-                        </button>
-                    </header>
-
-                    <main className="flex-1 overflow-y-auto p-5 pb-24 bg-slate-50/50">
-                        {tabActiva === 'inicio' && (
-                            <div className="space-y-6">
-                                {esAdmin && pendientes.length > 0 && (
-                                    <div className="bg-amber-50 border border-amber-100 p-5 rounded-[32px]">
-                                        <h3 className="text-amber-800 font-bold text-sm mb-3 flex items-center">
-                                            <i className="fas fa-exclamation-circle mr-2"></i> Solicitudes Pendientes ({pendientes.length})
-                                        </h3>
-                                        <div className="space-y-3">
-                                            {pendientes.map(p => (
-                                                <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center border border-amber-100">
-                                                    <div>
-                                                        <p className="font-bold text-slate-700 text-sm">{p.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{p.clase}</p>
-                                                    </div>
-                                                    <div className="flex space-x-2">
-                                                        <button onClick={() => aprobarMaestro(p.id)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 shadow-md"><i className="fas fa-check"></i></button>
-                                                        <button onClick={() => setIdMaestroAEliminar(p.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-lg text-xs hover:bg-rose-200"><i className="fas fa-trash"></i></button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-indigo-600 p-5 rounded-[32px] text-white shadow-xl shadow-indigo-100">
-                                        <p className="text-[10px] font-bold uppercase opacity-60">Maestros Activos</p>
-                                        <p className="text-4xl font-black">{maestros.filter(m => m.estado === 'Activo').length}</p>
-                                    </div>
-                                    <button 
-                                        onClick={() => { setMaestroEnEdicion(null); setModalFormularioAbierto(true); }}
-                                        className="bg-white p-5 rounded-[32px] border border-slate-100 flex flex-col justify-between text-left shadow-sm active:scale-95 transition-all group"
-                                    >
-                                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                                            <i className="fas fa-plus"></i>
-                                        </div>
-                                        <p className="font-bold text-slate-700 leading-tight">Nueva<br/>Inscripción</p>
-                                    </button>
-                                </div>
-
-                                <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="font-bold text-slate-800">Directorio Rápido</h3>
-                                        <button onClick={() => setTabActiva('lista')} className="text-indigo-500 text-[10px] font-bold uppercase">Ver todos</button>
-                                    </div>
-                                    <div className="space-y-4">
-                                        {maestros.filter(m => m.estado === 'Activo').slice(0, 4).map(m => (
-                                            <div key={m.id} className="flex items-center justify-between">
-                                                <div className="flex items-center space-x-3">
-                                                    <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
-                                                        {m.nombre.charAt(0)}
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-bold text-sm text-slate-700">{m.nombre}</p>
-                                                        <p className="text-[10px] text-slate-400">{m.clase}</p>
-                                                    </div>
-                                                </div>
-                                                {m.telefono && (
-                                                    <a href={`tel:${m.telefono}`} className="text-indigo-500 w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center active:bg-indigo-500 active:text-white transition-colors">
-                                                        <i className="fas fa-phone-alt text-xs"></i>
-                                                    </a>
-                                                )}
-                                            </div>
-                                        ))}
-                                        {maestros.filter(m => m.estado === 'Activo').length === 0 && (
-                                            <p className="text-center text-slate-400 text-xs py-4 italic">No hay registros activos aún.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {tabActiva === 'lista' && (
-                            <div className="space-y-4">
-                                <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex items-center px-4 sticky top-0 z-10">
-                                    <i className="fas fa-search text-slate-300 mr-3"></i>
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar por nombre..."
-                                        value={busqueda}
-                                        onChange={(e) => setBusqueda(e.target.value)}
-                                        className="w-full py-3 focus:outline-none bg-transparent"
-                                    />
-                                    {busqueda && (
-                                        <button onClick={() => setBusqueda('')} className="text-slate-300">
-                                            <i className="fas fa-times-circle"></i>
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div className="space-y-3">
-                                    {maestrosVisibles.map((m) => (
-                                        <div key={m.id} className="bg-white rounded-[32px] p-5 shadow-sm border border-slate-100 relative overflow-hidden group">
-                                            <div className="flex justify-between items-start">
-                                                <div className="flex-1">
-                                                    <span className={`inline-block px-2 py-1 rounded-md text-[8px] font-black uppercase mb-2 ${m.estado === 'Pendiente' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-50 text-indigo-500'}`}>
-                                                        {m.clase}
-                                                    </span>
-                                                    <h3 className="font-bold text-slate-800 text-base">{m.nombre}</h3>
-                                                    {m.telefono && <p className="text-slate-400 text-xs mt-1"><i className="fab fa-whatsapp mr-1"></i> {m.telefono}</p>}
-                                                </div>
-                                                {m.telefono && (
-                                                    <a href={`https://wa.me/${m.telefono.replace(/\D/g,'')}`} target="_blank" className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shadow-sm">
-                                                        <i className="fab fa-whatsapp text-xl"></i>
-                                                    </a>
-                                                )}
-                                            </div>
-                                            
-                                            {esAdmin && (
-                                                <div className="flex border-t border-slate-50 pt-3 mt-3 space-x-2">
-                                                    <button onClick={() => { setMaestroEnEdicion(m); setModalFormularioAbierto(true); }} className="flex-1 py-2 bg-slate-50 text-slate-500 text-[10px] font-black uppercase rounded-lg active:bg-indigo-50 active:text-indigo-600 transition-colors">
-                                                        <i className="fas fa-edit mr-1"></i> Editar
-                                                    </button>
-                                                    <button onClick={() => setIdMaestroAEliminar(m.id)} className="px-4 py-2 bg-rose-50 text-rose-400 rounded-lg text-[10px] active:bg-rose-500 active:text-white transition-colors">
-                                                        <i className="fas fa-trash"></i>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                    {maestrosVisibles.length === 0 && (
-                                        <div className="text-center py-20 text-slate-300">
-                                            <i className="fas fa-user-slash text-4xl mb-4"></i>
-                                            <p className="text-sm font-medium">No se encontraron resultados</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </main>
-
-                    <nav className="bg-white border-t border-slate-100 fixed bottom-0 w-full max-w-md h-20 flex justify-around items-center px-4 z-40">
-                        <button onClick={() => setTabActiva('inicio')} className={`flex flex-col items-center flex-1 transition-all ${tabActiva === 'inicio' ? 'text-indigo-600 scale-110' : 'text-slate-300'}`}>
-                            <i className="fas fa-home text-xl"></i>
-                            <span className="text-[9px] font-black uppercase mt-1">Inicio</span>
-                        </button>
-                        <button onClick={() => setTabActiva('lista')} className={`flex flex-col items-center flex-1 transition-all ${tabActiva === 'lista' ? 'text-indigo-600 scale-110' : 'text-slate-300'}`}>
-                            <div className="relative">
-                                <i className="fas fa-users text-xl"></i>
-                                {esAdmin && pendientes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border-2 border-white"></span>}
-                            </div>
-                            <span className="text-[9px] font-black uppercase mt-1">Directorio</span>
-                        </button>
-                    </nav>
-
-                    {/* MODAL FORMULARIO */}
-                    {modalFormularioAbierto && (
-                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center z-50">
-                            <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-8 pb-12 shadow-2xl animate-in slide-in-from-bottom duration-300">
-                                <div className="w-12 h-1.5 bg-slate-100 rounded-full mx-auto mb-6 sm:hidden"></div>
-                                <h2 className="text-2xl font-black text-slate-800 mb-6">{maestroEnEdicion ? 'Editar Registro' : 'Inscribir Nuevo'}</h2>
-                                <form onSubmit={(e) => {
-                                    e.preventDefault();
-                                    const formData = new FormData(e.target);
-                                    guardarMaestro(Object.fromEntries(formData.entries()));
-                                }} className="space-y-4">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Nombre Completo</label>
-                                        <input type="text" name="nombre" placeholder="Ej. Juan Pérez" required defaultValue={maestroEnEdicion?.nombre || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">WhatsApp (Opcional)</label>
-                                        <input type="tel" name="telefono" placeholder="Ej. 12345678" defaultValue={maestroEnEdicion?.telefono || ''} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all" />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-4">Clase / Ministerio</label>
-                                        <select name="clase" defaultValue={maestroEnEdicion?.clase || 'Párvulos'} className="w-full p-4 bg-slate-50 border border-transparent rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 appearance-none">
-                                            {['Cuna', 'Párvulos', 'Principiantes', 'Primarios', 'Intermedios', 'Jóvenes', 'Adultos', 'Logística', 'Dirección'].map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="pt-4 flex flex-col space-y-3">
-                                        <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl active:scale-95 transition-all">
-                                            {esAdmin ? 'Confirmar Cambios' : 'Enviar para Aprobación'}
-                                        </button>
-                                        <button type="button" onClick={() => setModalFormularioAbierto(false)} className="w-full py-2 text-slate-400 font-bold text-[10px] uppercase tracking-widest transition-colors hover:text-rose-500">Cancelar</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MODAL ELIMINAR */}
-                    {idMaestroAEliminar && (
-                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-6">
-                            <div className="bg-white rounded-[40px] p-8 w-full max-w-xs text-center shadow-2xl">
-                                <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <i className="fas fa-trash-alt text-2xl"></i>
-                                </div>
-                                <h3 className="text-xl font-black text-slate-800">¿Borrar registro?</h3>
-                                <p className="text-slate-400 text-xs mb-8 mt-2 leading-relaxed">Esta acción es permanente y los datos se borrarán de la base de datos en la nube.</p>
-                                <div className="space-y-3">
-                                    <button onClick={async () => { await db.collection('maestros').doc(idMaestroAEliminar).delete(); setIdMaestroAEliminar(null); }} className="w-full py-4 bg-rose-500 text-white font-bold rounded-2xl shadow-lg shadow-rose-100 active:scale-95 transition-all">Sí, eliminar ahora</button>
-                                    <button onClick={() => setIdMaestroAEliminar(null)} className="w-full py-2 text-slate-300 font-bold uppercase text-[10px] tracking-widest">Mantener registro</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
+    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'data');
+    
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setUserData(data);
+        
+        // Logic for view redirection based on status
+        if (data.role === 'admin') {
+          setView('admin');
+        } else if (data.status === 'approved') {
+          setView('dashboard');
+        } else {
+          setView('pending');
         }
+      } else {
+        // New user without profile
+        setUserData(null);
+        setView('register');
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching user profile:", error);
+      setLoading(false);
+    });
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Admin: Watch All Users ---
+  useEffect(() => {
+    if (userData?.role !== 'admin' || !user) return;
+
+    const usersCollection = collection(db, 'artifacts', appId, 'public', 'data', 'userRegistry');
+    
+    const unsubscribe = onSnapshot(usersCollection, (snapshot) => {
+      const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllUsers(usersList);
+    }, (error) => {
+      console.error("Admin fetch error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [userData, user]);
+
+  // --- Actions ---
+  const handleRegister = async (role, name) => {
+    if (!auth.currentUser) return;
+    
+    const currentUser = auth.currentUser;
+    const profileData = {
+      uid: currentUser.uid,
+      name: name,
+      role: role,
+      status: role === 'admin' ? 'approved' : 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      // Save private profile
+      await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'profile', 'data'), profileData);
+      
+      // Save to public registry for admin to see
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', currentUser.uid), profileData);
+    } catch (err) {
+      console.error("Error saving profile:", err);
+    }
+  };
+
+  const approveUser = async (targetUid) => {
+    try {
+      // Update public registry
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'userRegistry', targetUid), {
+        status: 'approved'
+      });
+      // Update private profile
+      await updateDoc(doc(db, 'artifacts', appId, 'users', targetUid, 'profile', 'data'), {
+        status: 'approved'
+      });
+    } catch (err) {
+      console.error("Error approving user:", err);
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* Navigation Header */}
+      <header className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="text-blue-600 w-8 h-8" />
+          <h1 className="text-xl font-bold tracking-tight">Sistema Escolar</h1>
+        </div>
+        {user && userData && (
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-slate-500 hidden sm:inline">
+              {userData?.name} ({userData?.role})
+            </span>
+            <button 
+              onClick={handleLogout}
+              className="p-2 hover:bg-red-50 text-red-600 rounded-full transition-colors"
+              title="Cerrar Sesión"
+            >
+              <LogOut size={20} />
+            </button>
+          </div>
+        )}
+      </header>
+
+      <main className="max-w-4xl mx-auto p-6">
+        {/* LOGIN VIEW */}
+        {view === 'login' && (
+          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-sm border mt-10">
+            <div className="text-center mb-8">
+              <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Lock className="text-blue-600" size={32} />
+              </div>
+              <h2 className="text-2xl font-bold">Bienvenido</h2>
+              <p className="text-slate-500">Inicie sesión para continuar</p>
+            </div>
+            
+            <div className="space-y-4">
+              <button 
+                onClick={() => setView('register')}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition shadow-md"
+              >
+                Registrarse como Personal
+              </button>
+              <div className="relative flex items-center py-4">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink mx-4 text-slate-400 text-sm">O</span>
+                <div className="flex-grow border-t border-slate-200"></div>
+              </div>
+              <button 
+                onClick={() => handleRegister('admin', 'Administrador Principal')}
+                className="w-full py-3 border-2 border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition"
+              >
+                Entrar como Administrador
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* REGISTRATION FORM */}
+        {view === 'register' && (
+          <RegistrationForm onRegister={handleRegister} onCancel={() => setView('login')} />
+        )}
+
+        {/* PENDING APPROVAL VIEW */}
+        {view === 'pending' && (
+          <div className="max-w-md mx-auto bg-white p-10 rounded-2xl shadow-sm border mt-10 text-center">
+            <div className="bg-amber-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Clock className="text-amber-600" size={40} />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Acceso Restringido</h2>
+            <p className="text-slate-600 mb-6">
+              Hola <span className="font-bold">{userData?.name}</span>. Tu cuenta como <span className="italic">{userData?.role}</span> requiere la **autorización del Administrador**.
+            </p>
+            <div className="p-4 bg-amber-50 rounded-lg border border-amber-100 mb-8">
+              <p className="text-sm text-amber-800">
+                Por favor, contacta al administrador para que apruebe tu solicitud. Esta página se actualizará automáticamente una vez seas autorizado.
+              </p>
+            </div>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Estado: Pendiente</p>
+          </div>
+        )}
+
+        {/* MAIN DASHBOARD */}
+        {view === 'dashboard' && (
+          <div className="animate-in fade-in duration-500">
+            <div className="bg-green-600 text-white p-8 rounded-2xl shadow-lg mb-8 flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-bold mb-1">¡Bienvenido, {userData?.name}!</h2>
+                <p className="opacity-90">Tu acceso ha sido autorizado correctamente.</p>
+              </div>
+              <CheckCircle2 size={64} className="opacity-20" />
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <DashboardCard title="Mis Clases" description="Gestiona tus horarios y alumnos." icon="📚" color="bg-blue-500" />
+              <DashboardCard title="Reportes" description="Envía reportes de logística o asistencia." icon="📝" color="bg-purple-500" />
+            </div>
+          </div>
+        )}
+
+        {/* ADMIN PANEL */}
+        {view === 'admin' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-2xl font-bold">Panel de Administración</h2>
+                <p className="text-slate-500">Gestión de usuarios y autorizaciones</p>
+              </div>
+              <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
+                <Users size={16} /> {allUsers.length} Usuarios totales
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Usuario</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Rol</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Estado</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {allUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-10 text-center text-slate-400">No hay usuarios registrados aún</td>
+                    </tr>
+                  ) : (
+                    allUsers.map((u) => (
+                      <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-medium">{u.name}</td>
+                        <td className="px-6 py-4">
+                          <span className="capitalize px-3 py-1 bg-slate-100 rounded-full text-xs font-medium">
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {u.status === 'approved' ? (
+                            <span className="flex items-center gap-1 text-green-600 text-sm font-bold">
+                              <CheckCircle2 size={14} /> Autorizado
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-amber-600 text-sm font-bold">
+                              <Clock size={14} /> Esperando
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {u.status === 'pending' && (
+                            <button 
+                              onClick={() => approveUser(u.id)}
+                              className="bg-green-100 text-green-700 px-4 py-1.5 rounded-lg text-sm font-bold hover:bg-green-200 transition"
+                            >
+                              Autorizar Acceso
+                            </button>
+                          )}
+                          {u.status === 'approved' && u.role !== 'admin' && (
+                            <span className="text-slate-400 text-sm">Usuario Activo</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function RegistrationForm({ onRegister, onCancel }) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('maestro');
+
+  return (
+    <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-sm border mt-10">
+      <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+        <UserPlus className="text-blue-600" /> Nuevo Registro
+      </h2>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">Nombre Completo</label>
+          <input 
+            type="text" 
+            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+            placeholder="Ej. Juan Pérez"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">Rol Solicitado</label>
+          <select 
+            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none appearance-none bg-white"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            <option value="maestro">Maestro</option>
+            <option value="maestro auxiliar">Maestro Auxiliar</option>
+            <option value="logística">Logística</option>
+          </select>
+        </div>
+        <div className="pt-4 flex flex-col gap-3">
+          <button 
+            disabled={!name}
+            onClick={() => onRegister(role, name)}
+            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition"
+          >
+            Solicitar Acceso
+          </button>
+          <button 
+            onClick={onCancel}
+            className="w-full py-2 text-slate-500 text-sm hover:underline"
+          >
+            Volver al inicio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardCard({ title, description, icon, color }) {
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group">
+      <div className={`${color} w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform`}>
+        {icon}
+      </div>
+      <h3 className="font-bold text-lg mb-1">{title}</h3>
+      <p className="text-slate-500 text-sm">{description}</p>
+    </div>
+  );
+}
